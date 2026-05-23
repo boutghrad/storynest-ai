@@ -1,0 +1,975 @@
+// StoryNest AI - Production-Grade Database Schema
+// Multi-tenant SaaS platform for personalized children's storytelling
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// CORE USER & AUTHENTICATION
+// ============================================================
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  name          String?
+  image         String?
+  emailVerified DateTime?
+  role          UserRole @default(USER)
+  provider      AuthProvider @default(CREDENTIALS)
+  providerId    String?
+  
+  // Profile
+  bio           String?
+  language      String   @default("en")
+  timezone      String   @default("UTC")
+  avatarUrl     String?
+  
+  // Parental Controls
+  safeMode      Boolean  @default(true)
+  contentFilterLevel ContentFilterLevel @default(STANDARD)
+  dailyTimeLimit Int?    // minutes per day
+  ageGroup      AgeGroup?
+  
+  // Onboarding
+  onboardingCompleted Boolean @default(false)
+  onboardingStep      Int     @default(0)
+  
+  // Status
+  isActive      Boolean  @default(true)
+  isVerified    Boolean  @default(false)
+  lastLoginAt  DateTime?
+  deletedAt    DateTime?
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  workspaces      WorkspaceMember[]
+  ownedWorkspaces Workspace[]
+  stories         Story[]
+  characters      Character[]
+  savedStories    SavedStory[]
+  subscriptions   Subscription[]
+  creditTransactions CreditTransaction[]
+  aiUsageLogs     AIUsageLog[]
+  notifications   Notification[]
+  preferences     UserPreferences?
+  storyAnalytics  StoryAnalytics[]
+  adminAuditLogs  AdminAuditLog[]
+  classrooms      ClassroomMember[]
+  teacherInvites  TeacherInvite[]
+  playlists       BedtimePlaylist[]
+  
+  @@index([email])
+  @@index([role])
+  @@index([deletedAt])
+}
+
+model UserPreferences {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  theme           Theme    @default(SYSTEM)
+  fontSize        FontSize @default(MEDIUM)
+  narrationSpeed  Float    @default(1.0)
+  narrationVoice  String   @default("alloy")
+  autoPlayNarration Boolean @default(false)
+  showIllustrations Boolean @default(true)
+  languagePreference String @default("en")
+  emailNotifications Boolean @default(true)
+  weeklyDigest    Boolean  @default(true)
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ============================================================
+// WORKSPACE & MULTI-TENANT
+// ============================================================
+
+model Workspace {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  logoUrl     String?
+  type        WorkspaceType @default(PERSONAL)
+  
+  // Settings
+  settings    String?  // JSON string for workspace settings
+  
+  isActive    Boolean  @default(true)
+  deletedAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId     String
+  members     WorkspaceMember[]
+  stories     Story[]
+  characters  Character[]
+  classrooms  Classroom[]
+  promptTemplates PromptTemplate[]
+  series      StorySeries[]
+
+  @@index([slug])
+  @@index([ownerId])
+  @@index([deletedAt])
+}
+
+model WorkspaceMember {
+  id          String   @id @default(cuid())
+  workspaceId String
+  userId      String
+  role        WorkspaceRole @default(MEMBER)
+  invitedBy   String?
+  joinedAt    DateTime @default(now())
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([workspaceId])
+  @@index([userId])
+}
+
+// ============================================================
+// SUBSCRIPTION & BILLING
+// ============================================================
+
+model Subscription {
+  id                String   @id @default(cuid())
+  userId            String
+  plan              SubscriptionPlan @default(FREE)
+  status            SubscriptionStatus @default(ACTIVE)
+  
+  // Stripe
+  stripeCustomerId  String?  @unique
+  stripePriceId     String?
+  stripeSubscriptionId String? @unique
+  
+  // Billing
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
+  cancelAtPeriodEnd  Boolean @default(false)
+  
+  // Credits
+  monthlyCredits    Int      @default(5)
+  usedCredits       Int      @default(0)
+  additionalCredits Int      @default(0)
+  
+  // Trial
+  trialStart        DateTime?
+  trialEnd          DateTime?
+  
+  endedAt           DateTime?
+  deletedAt         DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([stripeCustomerId])
+  @@index([status])
+}
+
+model CreditTransaction {
+  id          String   @id @default(cuid())
+  userId      String
+  type        CreditType
+  amount      Int
+  balance     Int      // balance after transaction
+  description String?
+  
+  // Reference
+  storyId     String?
+  aiUsageLogId String?
+  
+  createdAt   DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
+  @@index([type])
+}
+
+// ============================================================
+// STORIES & CONTENT
+// ============================================================
+
+model Story {
+  id              String   @id @default(cuid())
+  workspaceId     String
+  authorId        String
+  
+  // Content
+  title           String
+  description     String?
+  coverImageUrl   String?
+  
+  // Story Config
+  ageGroup        AgeGroup
+  genre           StoryGenre
+  moral           String?
+  educationalTopic String?
+  language        String   @default("en")
+  readingTime     Int?     // estimated minutes
+  
+  // AI Generation
+  aiModel         String?
+  promptUsed      String?
+  generationConfig String? // JSON
+  
+  // Series
+  seriesId        String?
+  episodeNumber   Int?
+  
+  // Status
+  status          StoryStatus @default(DRAFT)
+  isPublic        Boolean  @default(false)
+  isFeatured      Boolean  @default(false)
+  moderationStatus ModerationStatus @default(PENDING)
+  moderationNote  String?
+  
+  // Metrics
+  viewCount       Int      @default(0)
+  likeCount       Int      @default(0)
+  shareCount      Int      @default(0)
+  completionRate  Float?   // percentage of readers who finish
+  
+  // Soft delete
+  deletedAt       DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  author          User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  chapters        StoryChapter[]
+  scenes          StoryScene[]
+  images          StoryImage[]
+  narrations      AudioNarration[]
+  series          StorySeries? @relation(fields: [seriesId], references: [id])
+  savedBy         SavedStory[]
+  analytics       StoryAnalytics[]
+  tags            StoryTag[]
+
+  @@index([workspaceId])
+  @@index([authorId])
+  @@index([status])
+  @@index([ageGroup])
+  @@index([genre])
+  @@index([seriesId])
+  @@index([deletedAt])
+  @@index([moderationStatus])
+}
+
+model StoryChapter {
+  id          String   @id @default(cuid())
+  storyId     String
+  title       String
+  content     String
+  chapterNumber Int
+  
+  // AI
+  aiGenerated Boolean  @default(false)
+  promptUsed  String?
+  
+  // Metadata
+  wordCount   Int?
+  readingTime Int?   // seconds
+  
+  sortOrder   Int
+  deletedAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  story       Story    @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  scenes      StoryScene[]
+
+  @@index([storyId])
+  @@index([chapterNumber])
+}
+
+model StoryScene {
+  id          String   @id @default(cuid())
+  storyId     String
+  chapterId   String?
+  
+  // Content
+  title       String?
+  narrative   String
+  dialogue    String?  // JSON array of dialogue lines
+  emotion     String?  // primary emotion of scene
+  setting     String?  // scene setting description
+  
+  // Illustration
+  illustrationPrompt String?
+  illustrationUrl    String?
+  
+  sortOrder   Int
+  deletedAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  story       Story         @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  chapter     StoryChapter? @relation(fields: [chapterId], references: [id], onDelete: SetNull)
+  images      StoryImage[]
+
+  @@index([storyId])
+  @@index([chapterId])
+}
+
+model StoryImage {
+  id          String   @id @default(cuid())
+  storyId     String
+  sceneId     String?
+  
+  // Image
+  url         String
+  thumbnailUrl String?
+  altText     String?
+  width       Int?
+  height      Int?
+  
+  // AI Generation
+  prompt      String?
+  model       String?
+  style       String?  // illustration style
+  
+  sortOrder   Int
+  deletedAt   DateTime?
+  createdAt   DateTime @default(now())
+
+  story       Story      @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  scene       StoryScene? @relation(fields: [sceneId], references: [id], onDelete: SetNull)
+
+  @@index([storyId])
+  @@index([sceneId])
+}
+
+model AudioNarration {
+  id          String   @id @default(cuid())
+  storyId     String
+  
+  // Audio
+  audioUrl    String
+  duration    Int?     // seconds
+  fileSize    Int?     // bytes
+  
+  // AI TTS
+  voice       String
+  speed       Float    @default(1.0)
+  model       String?
+  
+  // Status
+  status      AudioStatus @default(PROCESSING)
+  
+  deletedAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  story       Story    @relation(fields: [storyId], references: [id], onDelete: Cascade)
+
+  @@index([storyId])
+  @@index([status])
+}
+
+// ============================================================
+// CHARACTERS
+// ============================================================
+
+model Character {
+  id          String   @id @default(cuid())
+  workspaceId String
+  creatorId   String
+  
+  // Identity
+  name        String
+  description String?
+  personality String?
+  appearance  String?
+  voiceType   String?
+  
+  // Type
+  type        CharacterType @default(CHILD)
+  age         Int?
+  gender      String?
+  
+  // Visual
+  avatarUrl   String?
+  referenceImages String? // JSON array of image URLs
+  
+  // AI Consistency
+  characterEmbedding String? // vector for consistency
+  
+  isPublic    Boolean  @default(false)
+  deletedAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  creator     User      @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  storyCharacters StoryCharacter[]
+
+  @@index([workspaceId])
+  @@index([creatorId])
+}
+
+model StoryCharacter {
+  id          String   @id @default(cuid())
+  storyId     String
+  characterId String
+  role        CharacterRole @default(SUPPORTING)
+  
+  createdAt   DateTime @default(now())
+
+  character   Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+
+  @@unique([storyId, characterId])
+  @@index([storyId])
+  @@index([characterId])
+}
+
+// ============================================================
+// SERIES & COLLECTIONS
+// ============================================================
+
+model StorySeries {
+  id          String   @id @default(cuid())
+  workspaceId String
+  
+  title       String
+  description String?
+  coverImageUrl String?
+  
+  totalEpisodes Int?
+  isComplete  Boolean  @default(false)
+  
+  deletedAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  stories     Story[]
+
+  @@index([workspaceId])
+}
+
+model StoryTag {
+  id    String @id @default(cuid())
+  name  String @unique
+  stories Story[]
+}
+
+// ============================================================
+// CLASSROOM & EDUCATION
+// ============================================================
+
+model Classroom {
+  id          String   @id @default(cuid())
+  workspaceId String
+  
+  name        String
+  description String?
+  gradeLevel  String?
+  subject     String?
+  accessCode  String   @unique
+  
+  isActive    Boolean  @default(true)
+  maxStudents Int      @default(30)
+  
+  deletedAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  members     ClassroomMember[]
+  sharedStories ClassroomSharedStory[]
+  invites     TeacherInvite[]
+
+  @@index([workspaceId])
+  @@index([accessCode])
+}
+
+model ClassroomMember {
+  id          String   @id @default(cuid())
+  classroomId String
+  userId      String
+  role        ClassroomRole @default(STUDENT)
+  
+  joinedAt    DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  classroom   Classroom @relation(fields: [classroomId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([classroomId, userId])
+  @@index([classroomId])
+  @@index([userId])
+}
+
+model ClassroomSharedStory {
+  id          String   @id @default(cuid())
+  classroomId String
+  storyId     String
+  sharedBy    String
+  
+  isRequired  Boolean  @default(false)
+  dueDate     DateTime?
+  
+  createdAt   DateTime @default(now())
+
+  classroom   Classroom @relation(fields: [classroomId], references: [id], onDelete: Cascade)
+
+  @@index([classroomId])
+  @@index([storyId])
+}
+
+model TeacherInvite {
+  id          String   @id @default(cuid())
+  classroomId String
+  email       String
+  invitedBy   String
+  role        ClassroomRole @default(STUDENT)
+  
+  token       String   @unique
+  expiresAt   DateTime
+  usedAt      DateTime?
+  
+  createdAt   DateTime @default(now())
+
+  classroom   Classroom @relation(fields: [classroomId], references: [id], onDelete: Cascade)
+  user        User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId      String?
+
+  @@index([token])
+  @@index([email])
+}
+
+// ============================================================
+// BEDTIME PLAYLISTS
+// ============================================================
+
+model BedtimePlaylist {
+  id          String   @id @default(cuid())
+  userId      String
+  name        String
+  description String?
+  
+  // Settings
+  autoPlayNext Boolean @default(true)
+  fadeOutDuration Int? // seconds
+  scheduleTime String? // HH:mm format
+  
+  sortOrder   Int
+  isActive    Boolean  @default(true)
+  deletedAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items       BedtimePlaylistItem[]
+
+  @@index([userId])
+}
+
+model BedtimePlaylistItem {
+  id          String   @id @default(cuid())
+  playlistId  String
+  storyId     String
+  
+  sortOrder   Int
+  createdAt   DateTime @default(now())
+
+  playlist    BedtimePlaylist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+
+  @@index([playlistId])
+}
+
+// ============================================================
+// SAVED STORIES & LIBRARY
+// ============================================================
+
+model SavedStory {
+  id          String   @id @default(cuid())
+  userId      String
+  storyId     String
+  
+  // Organization
+  folder      String?
+  notes       String?
+  rating      Int?     // 1-5
+  isFavorite  Boolean  @default(false)
+  
+  lastReadAt  DateTime?
+  readProgress Float?  // percentage 0-100
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  story       Story    @relation(fields: [storyId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, storyId])
+  @@index([userId])
+  @@index([storyId])
+  @@index([isFavorite])
+}
+
+// ============================================================
+// AI & ORCHESTRATION
+// ============================================================
+
+model AIUsageLog {
+  id          String   @id @default(cuid())
+  userId      String
+  workspaceId String?
+  
+  // AI Request
+  model       String
+  provider    AIProvider
+  requestType AIRequestType
+  
+  // Tokens & Cost
+  promptTokens    Int?
+  completionTokens Int?
+  totalTokens     Int?
+  estimatedCost   Float?
+  
+  // Performance
+  latencyMs   Int?
+  isSuccess   Boolean  @default(true)
+  errorMessage String?
+  
+  // Content Safety
+  moderationResult String? // JSON
+  safetyFlags String? // JSON array
+  
+  createdAt   DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([model])
+  @@index([requestType])
+  @@index([createdAt])
+}
+
+model PromptTemplate {
+  id          String   @id @default(cuid())
+  workspaceId String?
+  
+  name        String
+  description String?
+  category    PromptCategory
+  
+  // Template
+  systemPrompt String?
+  userPromptTemplate String // uses {{variable}} syntax
+  variables   String? // JSON array of variable names
+  
+  // Config
+  model       String?
+  temperature Float?
+  maxTokens   Int?
+  
+  isActive    Boolean  @default(true)
+  isSystem    Boolean  @default(false)
+  
+  version     Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([category])
+  @@index([workspaceId])
+}
+
+// ============================================================
+// ANALYTICS
+// ============================================================
+
+model StoryAnalytics {
+  id          String   @id @default(cuid())
+  storyId     String
+  userId      String
+  
+  event       AnalyticsEvent
+  metadata    String? // JSON
+  
+  sessionId   String?
+  deviceType  String?
+  
+  createdAt   DateTime @default(now())
+
+  story       Story    @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([storyId])
+  @@index([userId])
+  @@index([event])
+  @@index([createdAt])
+}
+
+// ============================================================
+// NOTIFICATIONS
+// ============================================================
+
+model Notification {
+  id          String   @id @default(cuid())
+  userId      String
+  
+  title       String
+  message     String
+  type        NotificationType
+  link        String?
+  
+  isRead      Boolean  @default(false)
+  readAt      DateTime?
+  
+  createdAt   DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+}
+
+// ============================================================
+// ADMIN & AUDIT
+// ============================================================
+
+model AdminAuditLog {
+  id          String   @id @default(cuid())
+  adminId     String
+  
+  action      String
+  resource    String
+  resourceId  String?
+  details     String? // JSON
+  
+  ipAddress   String?
+  userAgent   String?
+  
+  createdAt   DateTime @default(now())
+
+  admin       User     @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId])
+  @@index([resource])
+  @@index([createdAt])
+}
+
+// ============================================================
+// ENUMS
+// ============================================================
+
+enum UserRole {
+  USER
+  TEACHER
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum AuthProvider {
+  CREDENTIALS
+  GOOGLE
+  GITHUB
+}
+
+enum ContentFilterLevel {
+  STRICT
+  STANDARD
+  RELAXED
+}
+
+enum AgeGroup {
+  TODDLER    // 2-4
+  EARLY_CHILD // 4-6
+  CHILD      // 6-8
+  TWEEN      // 8-12
+  TEEN       // 12+
+}
+
+enum Theme {
+  LIGHT
+  DARK
+  SYSTEM
+}
+
+enum FontSize {
+  SMALL
+  MEDIUM
+  LARGE
+  EXTRA_LARGE
+}
+
+enum WorkspaceType {
+  PERSONAL
+  FAMILY
+  CLASSROOM
+  ORGANIZATION
+}
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum SubscriptionPlan {
+  FREE
+  PRO
+  FAMILY
+  TEACHER
+  ENTERPRISE
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  TRIALING
+  PAUSED
+}
+
+enum CreditType {
+  PURCHASE
+  SUBSCRIPTION
+  USAGE
+  REFUND
+  BONUS
+}
+
+enum StoryGenre {
+  ADVENTURE
+  FANTASY
+  FAIRY_TALE
+  SCIENCE_FICTION
+  MYSTERY
+  EDUCATIONAL
+  BEDTIME
+  HUMOR
+  FABLE
+  MYTHOLOGY
+  REALISTIC_FICTION
+  HISTORICAL
+}
+
+enum StoryStatus {
+  DRAFT
+  GENERATING
+  REVIEW
+  PUBLISHED
+  ARCHIVED
+}
+
+enum ModerationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  FLAGGED
+}
+
+enum CharacterType {
+  CHILD
+  ADULT
+  ANIMAL
+  MAGICAL_CREATURE
+  ROBOT
+  OTHER
+}
+
+enum CharacterRole {
+  PROTAGONIST
+  ANTAGONIST
+  SUPPORTING
+  MENTOR
+  SIDEKICK
+}
+
+enum ClassroomRole {
+  TEACHER
+  CO_TEACHER
+  STUDENT
+  OBSERVER
+}
+
+enum AudioStatus {
+  PROCESSING
+  READY
+  FAILED
+}
+
+enum AIProvider {
+  OPENAI
+  ANTHROPIC
+  LOCAL
+}
+
+enum AIRequestType {
+  STORY_GENERATION
+  ILLUSTRATION
+  NARRATION
+  MODERATION
+  TRANSLATION
+  CONTINUATION
+  CHARACTER_CONSISTENCY
+}
+
+enum PromptCategory {
+  STORY_PLANNING
+  SCENE_GENERATION
+  CHARACTER_CREATION
+  ILLUSTRATION_PROMPT
+  MORAL_LESSON
+  EDUCATIONAL_ADAPTATION
+  EMOTION_AWARENESS
+  CONTENT_MODERATION
+  AGE_SAFETY
+  TRANSLATION
+}
+
+enum AnalyticsEvent {
+  STORY_VIEW
+  STORY_COMPLETE
+  STORY_SHARE
+  STORY_SAVE
+  CHAPTER_READ
+  ILLUSTRATION_VIEW
+  NARRATION_PLAY
+  NARRATION_COMPLETE
+  STORY_CREATED
+  STORY_PUBLISHED
+}
+
+enum NotificationType {
+  INFO
+  SUCCESS
+  WARNING
+  STORY_READY
+  SUBSCRIPTION
+  MODERATION
+  CLASSROOM_INVITE
+  ACHIEVEMENT
+}

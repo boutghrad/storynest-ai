@@ -1,0 +1,478 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-magic: var(--magic);
+  --color-magic-foreground: var(--magic-foreground);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --animate-float: float 6s ease-in-out infinite;
+  --animate-shimmer: shimmer 2s linear infinite;
+  --animate-sparkle: sparkle 1.5s ease-in-out infinite;
+  --animate-page-flip: pageFlip 0.6s ease-in-out;
+  --animate-fade-up: fadeUp 0.5s ease-out;
+  --animate-bounce-gentle: bounce-gentle 2s ease-in-out infinite;
+  --animate-pulse-glow: pulse-glow 2s ease-in-out infinite;
+  --animate-storybook-open: storybook-open 0.8s ease-out;
+}
+
+/* ===== Light Theme — Warm, Magical, Disney+ Inspired ===== */
+:root {
+  --radius: 0.75rem;
+
+  /* Warm off-white background */
+  --background: oklch(0.97 0.005 80);
+  --foreground: oklch(0.18 0.02 50);
+
+  /* Cards — soft cream */
+  --card: oklch(0.995 0.003 80);
+  --card-foreground: oklch(0.18 0.02 50);
+
+  /* Popover */
+  --popover: oklch(0.995 0.003 80);
+  --popover-foreground: oklch(0.18 0.02 50);
+
+  /* Primary — Warm amber/golden (#F59E0B family) */
+  --primary: oklch(0.77 0.16 75);
+  --primary-foreground: oklch(0.15 0.04 50);
+
+  /* Secondary — Soft warm gray */
+  --secondary: oklch(0.94 0.008 80);
+  --secondary-foreground: oklch(0.25 0.02 50);
+
+  /* Muted */
+  --muted: oklch(0.94 0.008 80);
+  --muted-foreground: oklch(0.50 0.02 50);
+
+  /* Accent — Soft violet/purple (#8B5CF6 family) for magic elements */
+  --accent: oklch(0.55 0.2 290);
+  --accent-foreground: oklch(0.97 0.005 290);
+
+  /* Success — Emerald green */
+  --success: oklch(0.62 0.17 155);
+  --success-foreground: oklch(0.15 0.04 155);
+
+  /* Magic — Special purple for magical effects */
+  --magic: oklch(0.55 0.22 290);
+  --magic-foreground: oklch(0.97 0.005 290);
+
+  /* Destructive */
+  --destructive: oklch(0.58 0.22 25);
+
+  /* Borders & Input */
+  --border: oklch(0.90 0.01 80);
+  --input: oklch(0.90 0.01 80);
+  --ring: oklch(0.77 0.16 75);
+
+  /* Charts — warm, story-themed palette */
+  --chart-1: oklch(0.77 0.16 75);
+  --chart-2: oklch(0.55 0.2 290);
+  --chart-3: oklch(0.62 0.17 155);
+  --chart-4: oklch(0.70 0.18 30);
+  --chart-5: oklch(0.65 0.2 330);
+
+  /* Sidebar */
+  --sidebar: oklch(0.96 0.006 80);
+  --sidebar-foreground: oklch(0.18 0.02 50);
+  --sidebar-primary: oklch(0.77 0.16 75);
+  --sidebar-primary-foreground: oklch(0.15 0.04 50);
+  --sidebar-accent: oklch(0.94 0.008 80);
+  --sidebar-accent-foreground: oklch(0.25 0.02 50);
+  --sidebar-border: oklch(0.90 0.01 80);
+  --sidebar-ring: oklch(0.77 0.16 75);
+}
+
+/* ===== Dark Theme — Deep Navy, Enchanted Night Sky ===== */
+.dark {
+  /* Deep navy background */
+  --background: oklch(0.15 0.03 270);
+  --foreground: oklch(0.95 0.01 80);
+
+  /* Cards — slightly lighter navy */
+  --card: oklch(0.20 0.035 270);
+  --card-foreground: oklch(0.95 0.01 80);
+
+  /* Popover */
+  --popover: oklch(0.20 0.035 270);
+  --popover-foreground: oklch(0.95 0.01 80);
+
+  /* Primary — Brighter amber for dark mode */
+  --primary: oklch(0.80 0.17 75);
+  --primary-foreground: oklch(0.12 0.03 50);
+
+  /* Secondary */
+  --secondary: oklch(0.25 0.03 270);
+  --secondary-foreground: oklch(0.95 0.01 80);
+
+  /* Muted */
+  --muted: oklch(0.25 0.03 270);
+  --muted-foreground: oklch(0.65 0.03 270);
+
+  /* Accent — Brighter violet for dark mode */
+  --accent: oklch(0.65 0.22 290);
+  --accent-foreground: oklch(0.98 0.005 290);
+
+  /* Success */
+  --success: oklch(0.65 0.19 155);
+  --success-foreground: oklch(0.12 0.03 155);
+
+  /* Magic */
+  --magic: oklch(0.65 0.24 290);
+  --magic-foreground: oklch(0.98 0.005 290);
+
+  /* Destructive */
+  --destructive: oklch(0.65 0.22 25);
+
+  /* Borders & Input */
+  --border: oklch(0.30 0.035 270);
+  --input: oklch(0.30 0.035 270);
+  --ring: oklch(0.80 0.17 75);
+
+  /* Charts — brighter for dark mode */
+  --chart-1: oklch(0.80 0.17 75);
+  --chart-2: oklch(0.65 0.22 290);
+  --chart-3: oklch(0.65 0.19 155);
+  --chart-4: oklch(0.75 0.20 30);
+  --chart-5: oklch(0.70 0.22 330);
+
+  /* Sidebar */
+  --sidebar: oklch(0.18 0.035 270);
+  --sidebar-foreground: oklch(0.95 0.01 80);
+  --sidebar-primary: oklch(0.80 0.17 75);
+  --sidebar-primary-foreground: oklch(0.12 0.03 50);
+  --sidebar-accent: oklch(0.25 0.03 270);
+  --sidebar-accent-foreground: oklch(0.95 0.01 80);
+  --sidebar-border: oklch(0.30 0.035 270);
+  --sidebar-ring: oklch(0.80 0.17 75);
+}
+
+/* ===== Base Layer ===== */
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* ===== Custom Animation Keyframes ===== */
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-12px);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes sparkle {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(1.2);
+  }
+}
+
+@keyframes pageFlip {
+  0% {
+    transform: perspective(600px) rotateY(0deg);
+    opacity: 1;
+  }
+  50% {
+    transform: perspective(600px) rotateY(-90deg);
+    opacity: 0.5;
+  }
+  100% {
+    transform: perspective(600px) rotateY(0deg);
+    opacity: 1;
+  }
+}
+
+@keyframes fadeUp {
+  0% {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes bounce-gentle {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 5px oklch(0.77 0.16 75 / 0.3), 0 0 10px oklch(0.77 0.16 75 / 0.1);
+  }
+  50% {
+    box-shadow: 0 0 15px oklch(0.77 0.16 75 / 0.5), 0 0 30px oklch(0.77 0.16 75 / 0.2);
+  }
+}
+
+@keyframes storybook-open {
+  0% {
+    transform: scale(0.8) rotateX(10deg);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1.02) rotateX(-2deg);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(1) rotateX(0deg);
+    opacity: 1;
+  }
+}
+
+/* ===== Custom Scrollbar ===== */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: oklch(0.77 0.16 75 / 0.3);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.77 0.16 75 / 0.5);
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: oklch(0.80 0.17 75 / 0.3);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.80 0.17 75 / 0.5);
+}
+
+/* Firefox scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: oklch(0.77 0.16 75 / 0.3) transparent;
+}
+
+.dark * {
+  scrollbar-color: oklch(0.80 0.17 75 / 0.3) transparent;
+}
+
+/* ===== Glassmorphism Utilities ===== */
+.glass {
+  background: oklch(1 0 0 / 0.6);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border: 1px solid oklch(1 0 0 / 0.3);
+  box-shadow: 0 8px 32px oklch(0 0 0 / 0.06);
+}
+
+.dark .glass {
+  background: oklch(0.20 0.035 270 / 0.6);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border: 1px solid oklch(1 0 0 / 0.08);
+  box-shadow: 0 8px 32px oklch(0 0 0 / 0.3);
+}
+
+.glass-dark {
+  background: oklch(0.15 0.03 270 / 0.7);
+  backdrop-filter: blur(20px) saturate(200%);
+  -webkit-backdrop-filter: blur(20px) saturate(200%);
+  border: 1px solid oklch(1 0 0 / 0.1);
+  box-shadow: 0 8px 32px oklch(0 0 0 / 0.4);
+}
+
+.dark .glass-dark {
+  background: oklch(0.12 0.03 270 / 0.8);
+  backdrop-filter: blur(20px) saturate(200%);
+  -webkit-backdrop-filter: blur(20px) saturate(200%);
+  border: 1px solid oklch(1 0 0 / 0.06);
+  box-shadow: 0 8px 32px oklch(0 0 0 / 0.5);
+}
+
+/* ===== Gradient Text Utility ===== */
+.gradient-text {
+  background: linear-gradient(135deg, oklch(0.77 0.16 75), oklch(0.55 0.2 290), oklch(0.70 0.18 30));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.dark .gradient-text {
+  background: linear-gradient(135deg, oklch(0.85 0.18 75), oklch(0.65 0.24 290), oklch(0.75 0.20 30));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* ===== Story-Specific Styles ===== */
+.storybook-card {
+  position: relative;
+  border-radius: calc(var(--radius) + 8px);
+  background: oklch(0.995 0.003 80);
+  border: 1px solid oklch(0.90 0.01 80);
+  box-shadow:
+    0 4px 16px oklch(0.77 0.16 75 / 0.08),
+    0 1px 4px oklch(0 0 0 / 0.04);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+}
+
+.storybook-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, oklch(0.77 0.16 75), oklch(0.55 0.2 290), oklch(0.62 0.17 155));
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.storybook-card:hover {
+  transform: translateY(-4px);
+  box-shadow:
+    0 12px 32px oklch(0.77 0.16 75 / 0.15),
+    0 4px 12px oklch(0 0 0 / 0.06);
+}
+
+.storybook-card:hover::before {
+  opacity: 1;
+}
+
+.dark .storybook-card {
+  background: oklch(0.20 0.035 270);
+  border: 1px solid oklch(0.30 0.035 270);
+  box-shadow:
+    0 4px 16px oklch(0 0 0 / 0.2),
+    0 1px 4px oklch(0 0 0 / 0.1);
+}
+
+.dark .storybook-card:hover {
+  box-shadow:
+    0 12px 32px oklch(0.80 0.17 75 / 0.1),
+    0 4px 12px oklch(0 0 0 / 0.3);
+}
+
+.magic-glow {
+  box-shadow:
+    0 0 15px oklch(0.55 0.2 290 / 0.2),
+    0 0 30px oklch(0.55 0.2 290 / 0.1),
+    0 0 45px oklch(0.77 0.16 75 / 0.05);
+  transition: box-shadow 0.3s ease;
+}
+
+.magic-glow:hover {
+  box-shadow:
+    0 0 20px oklch(0.55 0.2 290 / 0.35),
+    0 0 40px oklch(0.55 0.2 290 / 0.15),
+    0 0 60px oklch(0.77 0.16 75 / 0.1);
+}
+
+.dark .magic-glow {
+  box-shadow:
+    0 0 15px oklch(0.65 0.24 290 / 0.25),
+    0 0 30px oklch(0.65 0.24 290 / 0.12),
+    0 0 45px oklch(0.80 0.17 75 / 0.06);
+}
+
+.dark .magic-glow:hover {
+  box-shadow:
+    0 0 20px oklch(0.65 0.24 290 / 0.4),
+    0 0 40px oklch(0.65 0.24 290 / 0.2),
+    0 0 60px oklch(0.80 0.17 75 / 0.12);
+}
+
+.floating-element {
+  animation: float 6s ease-in-out infinite;
+}
+
+/* ===== Selection Styling ===== */
+::selection {
+  background: oklch(0.77 0.16 75 / 0.3);
+  color: oklch(0.18 0.02 50);
+}
+
+.dark ::selection {
+  background: oklch(0.80 0.17 75 / 0.3);
+  color: oklch(0.95 0.01 80);
+}
+
+/* ===== Focus Ring Override for Magic Theme ===== */
+:focus-visible {
+  outline: 2px solid oklch(0.55 0.2 290 / 0.5);
+  outline-offset: 2px;
+}
+
+.dark :focus-visible {
+  outline: 2px solid oklch(0.65 0.24 290 / 0.5);
+  outline-offset: 2px;
+}
