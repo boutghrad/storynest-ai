@@ -255,16 +255,75 @@ export default function Dashboard() {
 
   // Generation state
   const [currentGenStep, setCurrentGenStep] = useState(0)
+  const [generationError, setGenerationError] = useState<string | null>(null)
   const eventSourceRef = useRef<EventSource | null>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
 
   const userName = user?.name || 'Storyteller'
   const credits = user?.credits ?? 25
+
+  // ===== Cancel ongoing generation =====
+  const cancelGeneration = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+      abortControllerRef.current = null
+    }
+    setGenerating(false)
+    setGenerationError(null)
+    updateProgress({ step: '', progress: 0 })
+  }, [setGenerating, updateProgress])
+
+  // ===== Create a fallback story if AI fails =====
+  const createFallbackStory = useCallback(() => {
+    const chapters = []
+    for (let i = 0; i < chapterCount; i++) {
+      chapters.push({
+        chapterNumber: i + 1,
+        title: i === 0 ? 'The Beginning' : i === chapterCount - 1 ? 'The Happy Ending' : `Chapter ${i + 1}`,
+        content: i === 0
+          ? `Once upon a time, in a land filled with wonder and magic, there lived a brave young hero named ${characters[0]?.name || 'the Adventurer'}. ${characters[0]?.description || 'They were known throughout the land for their courage and kindness.'} One day, something extraordinary happened that would change everything...`
+          : i === chapterCount - 1
+            ? `And so, our hero learned that ${storyForm.moral || 'true courage comes from being kind to others'}. From that day on, everyone in the land remembered this wonderful story, and they all lived happily ever after. The end.`
+            : `The adventure continued as our hero faced new challenges and made new friends along the way. Each step brought them closer to their goal, and with every challenge, they grew braver and wiser.`,
+        scenes: [{
+          title: i === 0 ? 'A New Beginning' : i === chapterCount - 1 ? 'The Lesson' : `Part ${i + 1}`,
+          narrative: i === 0
+            ? `Once upon a time, in a land filled with wonder and magic, there lived a brave young hero. One day, something extraordinary happened that would change everything.`
+            : i === chapterCount - 1
+              ? `And so, our hero learned that ${storyForm.moral || 'true courage comes from being kind to others'}. From that day on, everyone lived happily ever after.`
+              : `The adventure continued as our hero faced new challenges and made new friends along the way.`,
+          dialogue: [],
+          emotion: i === 0 ? 'wonder' : i === chapterCount - 1 ? 'happiness' : 'determination',
+          setting: i === 0 ? 'A magical land at the beginning of an adventure' : i === chapterCount - 1 ? 'A peaceful village, restored to happiness' : 'A path through an enchanted forest',
+        }],
+      })
+    }
+
+    return {
+      id: crypto.randomUUID(),
+      title: storyForm.title,
+      content: JSON.stringify(chapters),
+      pages: [],
+      ageGroup: storyForm.ageGroup as AgeGroup,
+      genre: storyForm.genre as StoryGenre,
+      moral: storyForm.moral || undefined,
+      characters,
+      language: storyForm.language,
+      includeIllustrations: storyForm.includeIllustrations,
+      includeNarration: storyForm.includeNarration,
+      coverImageUrl: undefined,
+      readingTimeMinutes: chapterCount * 3,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+  }, [storyForm, characters, chapterCount])
 
   // ===== SSE Story Generation =====
   const handleGenerateStory = useCallback(async () => {
     if (!storyForm.title || !storyForm.genre || !storyForm.ageGroup) return
 
     setGenerating(true)
+    setGenerationError(null)
     setCurrentGenStep(0)
 
     const requestBody = {
@@ -283,19 +342,32 @@ export default function Dashboard() {
       chapters: chapterCount,
     }
 
+    // Create an AbortController for timeout and cancellation
+    const controller = new AbortController()
+    abortControllerRef.current = controller
+    const timeoutId = setTimeout(() => controller.abort(), 120000) // 2 minute timeout
+
     try {
       const response = await fetch('/api/stories/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestBody),
+        signal: controller.signal,
       })
 
       if (!response.ok) {
-        throw new Error('Failed to start generation')
+        let errorMsg = `Server error (${response.status})`
+        try {
+          const errBody = await response.json()
+          errorMsg = errBody.error || errBody.message || errorMsg
+        } catch {
+          // Ignore JSON parse error
+        }
+        throw new Error(errorMsg)
       }
 
       const reader = response.body?.getReader()
-      if (!reader) throw new Error('No response body')
+      if (!reader) throw new Error('No response stream received')
 
       const decoder = new TextDecoder()
       let buffer = ''
@@ -317,7 +389,8 @@ export default function Dashboard() {
           if (line.startsWith('event: ')) {
             currentEvent = line.slice(7).trim()
           } else if (line.startsWith('data: ')) {
-            currentData = line.slice(6)
+            // Accumulate data (support multi-line data fields)
+            currentData += (currentData ? '\n' : '') + line.slice(6)
           } else if (line.trim() === '' && currentEvent && currentData) {
             try {
               const parsed = JSON.parse(currentData)
@@ -337,20 +410,25 @@ export default function Dashboard() {
 
                 const storyData = parsed.story
                 if (storyData) {
+                  // Build the content from chapters (including scenes)
+                  const chaptersForContent = Array.isArray(storyData.chapters)
+                    ? storyData.chapters
+                    : []
+
                   addStory({
                     id: storyData.id || crypto.randomUUID(),
                     title: storyData.title || storyForm.title,
-                    content: JSON.stringify(storyData.chapters || []),
+                    content: JSON.stringify(chaptersForContent),
                     pages: [],
-                    ageGroup: storyForm.ageGroup,
-                    genre: storyForm.genre,
-                    moral: storyData.moral || storyForm.moral,
+                    ageGroup: storyForm.ageGroup as AgeGroup,
+                    genre: storyForm.genre as StoryGenre,
+                    moral: storyData.moral || storyForm.moral || undefined,
                     characters,
                     language: storyForm.language,
                     includeIllustrations: storyForm.includeIllustrations,
                     includeNarration: storyForm.includeNarration,
                     coverImageUrl: undefined,
-                    readingTimeMinutes: storyData.readingTime || 5,
+                    readingTimeMinutes: storyData.readingTime || chapterCount * 3,
                     createdAt: new Date().toISOString(),
                     updatedAt: new Date().toISOString(),
                   })
@@ -358,14 +436,16 @@ export default function Dashboard() {
 
                 setTimeout(() => {
                   setGenerating(false)
+                  setGenerationError(null)
                   setActiveTab('my-stories')
                 }, 1500)
               } else if (currentEvent === 'error') {
+                const errMsg = parsed.error || parsed.message || 'Story generation failed'
+                setGenerationError(errMsg)
                 updateProgress({ step: 'Error', progress: 0 })
-                setGenerating(false)
               }
-            } catch {
-              // Ignore parse errors
+            } catch (parseErr) {
+              console.warn('SSE parse error:', parseErr, 'Data:', currentData)
             }
 
             currentEvent = ''
@@ -373,12 +453,35 @@ export default function Dashboard() {
           }
         }
       }
+
+      // If we exited the loop without receiving a 'complete' event, something went wrong
+      if (!generationError) {
+        // Check if story was already added (from complete event)
+        setGenerating(false)
+      }
     } catch (error) {
-      console.error('Story generation failed:', error)
-      updateProgress({ step: 'Error', progress: 0 })
-      setGenerating(false)
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        setGenerationError('Story generation timed out. Please try again.')
+      } else {
+        const errMsg = error instanceof Error ? error.message : 'Unknown error occurred'
+        console.error('Story generation failed:', error)
+
+        // Create a fallback story so the user still gets something
+        setGenerationError(`AI generation failed: ${errMsg}. Creating a template story instead...`)
+        const fallbackStory = createFallbackStory()
+        addStory(fallbackStory)
+
+        setTimeout(() => {
+          setGenerating(false)
+          setGenerationError(null)
+          setActiveTab('my-stories')
+        }, 2000)
+      }
+    } finally {
+      clearTimeout(timeoutId)
+      abortControllerRef.current = null
     }
-  }, [storyForm, characters, chapterCount, setGenerating, updateProgress, addStory])
+  }, [storyForm, characters, chapterCount, setGenerating, updateProgress, addStory, createFallbackStory, generationError])
 
   // ===== Character management =====
   const addCharacter = useCallback((template?: typeof CHARACTER_TEMPLATES[number]) => {
@@ -448,11 +551,14 @@ export default function Dashboard() {
     setView('reader')
   }, [setCurrentStory, setView])
 
-  // Cleanup event source on unmount
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (eventSourceRef.current) {
         eventSourceRef.current.close()
+      }
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
       }
     }
   }, [])
@@ -753,6 +859,30 @@ export default function Dashboard() {
                                 </motion.div>
                               )
                             })}
+                          </div>
+
+                          {/* Error Display */}
+                          {generationError && (
+                            <motion.div
+                              initial={{ opacity: 0, y: 10 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              className="mt-6 p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-center"
+                            >
+                              <AlertCircle className="w-6 h-6 text-red-500 mx-auto mb-2" />
+                              <p className="text-sm text-red-600 dark:text-red-400 font-medium">{generationError}</p>
+                            </motion.div>
+                          )}
+
+                          {/* Cancel Button */}
+                          <div className="mt-6 text-center">
+                            <Button
+                              variant="outline"
+                              onClick={cancelGeneration}
+                              className="gap-2 text-muted-foreground hover:text-foreground"
+                            >
+                              <X className="w-4 h-4" />
+                              Cancel Generation
+                            </Button>
                           </div>
                         </CardContent>
                       </Card>
