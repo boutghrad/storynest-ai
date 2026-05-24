@@ -45,6 +45,8 @@ const generateStorySchema = z.object({
   includeIllustrations: z.boolean().default(true),
   includeNarration: z.boolean().default(false),
   chapters: z.number().min(1).max(10).default(3),
+  // If true, return JSON response instead of SSE stream
+  mode: z.enum(["sse", "json"]).default("sse"),
 });
 
 type GenerateStoryInput = z.infer<typeof generateStorySchema>;
@@ -82,6 +84,236 @@ const GENRE_PROMPTS: Record<string, string> = {
 };
 
 // ============================================================
+// Helper: Extract text from ZAI SDK response
+// ============================================================
+
+function extractAIContent(response: unknown): string {
+  if (typeof response === "string") return response;
+  if (response && typeof response === "object" && "choices" in response) {
+    const resp = response as { choices: Array<{ message: { content: string } }> };
+    return resp.choices[0]?.message?.content || "";
+  }
+  return JSON.stringify(response);
+}
+
+// ============================================================
+// Helper: Parse AI response JSON (strip code fences, extract JSON)
+// ============================================================
+
+function parseAIJSON(text: string): Record<string, unknown> {
+  // Strip markdown code fences if present
+  const cleaned = text.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "").trim();
+  const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+  if (jsonMatch) {
+    return JSON.parse(jsonMatch[0]);
+  }
+  throw new Error("No JSON object found in AI response");
+}
+
+// ============================================================
+// Helper: Enrich chapters with scenes from content
+// ============================================================
+
+function enrichChaptersWithScenes(
+  chapters: unknown[],
+  ageGroup: string,
+  includeIllustrations: boolean
+): Record<string, unknown>[] {
+  const result: Record<string, unknown>[] = [];
+
+  for (const chapter of chapters) {
+    const ch = { ...(chapter as Record<string, unknown>) };
+
+    if (Array.isArray(ch.scenes) && ch.scenes.length > 0) {
+      // Scenes already exist - enrich illustration prompts if needed
+      if (includeIllustrations) {
+        ch.scenes = (ch.scenes as Record<string, unknown>[]).map((scene) => {
+          if (!scene.illustrationPrompt && scene.setting) {
+            scene.illustrationPrompt = `Children's book illustration, warm whimsical watercolor style: ${scene.setting}. Age group: ${ageGroup}. Soft lighting, gentle colors, magical atmosphere.`;
+          }
+          return scene;
+        });
+      }
+      result.push(ch);
+      continue;
+    }
+
+    // No scenes — create them from chapter content
+    const content = typeof ch.content === "string" ? ch.content.trim() : "";
+    if (content) {
+      const paragraphs = content.split(/\n\n+/).filter((p: string) => p.trim().length > 20);
+      ch.scenes = paragraphs.length > 0
+        ? paragraphs.map((para: string, idx: number) => ({
+            title: `${ch.title || "Chapter"} - Part ${idx + 1}`,
+            narrative: para.trim(),
+            dialogue: [],
+            emotion: idx === 0 ? "wonder" : idx === paragraphs.length - 1 ? "happiness" : "curiosity",
+            setting: "",
+            ...(includeIllustrations ? {
+              illustrationPrompt: `Children's book illustration, warm whimsical watercolor style: A scene from a children's story. Age group: ${ageGroup}. Soft lighting, gentle colors.`
+            } : {}),
+          }))
+        : [{
+            title: ch.title || "Chapter",
+            narrative: content,
+            dialogue: [],
+            emotion: "wonder",
+            setting: "",
+            ...(includeIllustrations ? {
+              illustrationPrompt: `Children's book illustration, warm whimsical watercolor style: A scene from a children's story. Age group: ${ageGroup}. Soft lighting, gentle colors.`
+            } : {}),
+          }];
+    } else {
+      // No content at all — the AI might have skipped this chapter
+      ch.scenes = [{
+        title: ch.title || "Chapter",
+        narrative: "The adventure continues with wonder and excitement...",
+        dialogue: [],
+        emotion: "wonder",
+        setting: "A magical place where anything can happen",
+      }];
+    }
+
+    result.push(ch);
+  }
+
+  return result;
+}
+
+// ============================================================
+// Core story generation logic (shared between SSE and JSON modes)
+// ============================================================
+
+async function generateStory(body: GenerateStoryInput): Promise<Record<string, unknown>> {
+  // Create the AI client
+  const ai = await ZAI.create();
+
+  // Build prompts
+  const ageDescription = AGE_GROUP_PROMPTS[body.ageGroup] || AGE_GROUP_PROMPTS.CHILD;
+  const genreDescription = GENRE_PROMPTS[body.genre] || "an engaging story";
+  const characterDescriptions = body.characters?.length
+    ? body.characters
+        .map((c) => `${c.name}${c.role ? ` (${c.role})` : ""}${c.description ? ` — ${c.description}` : ""}`)
+        .join(", ")
+    : "Create suitable characters for the story";
+
+  const systemPrompt = `You are StoryNest AI, a world-class children's storyteller. You create age-appropriate, engaging, and magical stories for children. Your stories are creative, have vivid imagery, and always include a positive moral lesson.
+
+You MUST respond with valid JSON only. No markdown, no code fences, no extra text.
+
+The story should be written for children who are ${ageDescription}.
+The genre is ${genreDescription}.
+The story should be written in ${body.language === "en" ? "English" : body.language}.
+${body.moral ? `The moral lesson should be: "${body.moral}"` : "Include an appropriate moral lesson."}
+The story should have ${body.chapters} chapter(s).
+${body.includeIllustrations ? "Include scene description prompts for illustrations." : "No illustration prompts needed."}
+
+Characters: ${characterDescriptions}
+
+IMPORTANT: Each chapter MUST have at least 2-3 scenes with:
+- "narrative": A vivid, descriptive paragraph (at least 100 words)
+- "dialogue": An array of objects with "speaker" and "line" fields
+- "emotion": The primary emotion of the scene
+- "setting": A brief description of the scene setting
+- "illustrationPrompt": A detailed prompt for generating an illustration`;
+
+  const userPrompt = `Create a complete children's story titled "${body.title}" with the following structure. Respond with ONLY a JSON object in this exact format:
+
+{
+  "title": "${body.title}",
+  "description": "A brief 1-2 sentence description of the story",
+  "ageGroup": "${body.ageGroup}",
+  "genre": "${body.genre}",
+  "language": "${body.language}",
+  "moral": "The moral lesson of the story",
+  "readingTime": <estimated reading time in minutes>,
+  "chapters": [
+    {
+      "chapterNumber": 1,
+      "title": "Creative chapter title",
+      "content": "The full chapter text with dialogue, descriptions, and narrative...",
+      "wordCount": <word count>,
+      "readingTime": <reading time in seconds>,
+      "scenes": [
+        {
+          "title": "Scene title",
+          "narrative": "A vivid, descriptive narrative for this scene (at least 100 words)",
+          "dialogue": [{"speaker": "Character Name", "line": "Dialogue text"}],
+          "emotion": "primary emotion (wonder, excitement, curiosity, happiness, etc.)",
+          "setting": "Scene setting description",
+          "illustrationPrompt": "${body.includeIllustrations ? "Detailed prompt for generating a children's book illustration for this scene, in a warm, whimsical, watercolor style" : ""}"
+        }
+      ]
+    }
+  ],
+  "characters": [
+    {
+      "name": "Character name",
+      "description": "Character description",
+      "type": "CHILD|ADULT|ANIMAL|MAGICAL_CREATURE|ROBOT|OTHER",
+      "role": "PROTAGONIST|ANTAGONIST|SUPPORTING|MENTOR|SIDEKICK"
+    }
+  ]
+}
+
+Make the story vivid, engaging, and age-appropriate. Each scene should have unique and creative content. Use descriptive language that sparks imagination. Make each scene different and exciting.`;
+
+  // Generate the story with AI
+  const storyResponse = await ai.chat.completions.create({
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ],
+  });
+
+  // Parse the AI response
+  let storyData: Record<string, unknown>;
+  try {
+    const responseText = extractAIContent(storyResponse);
+    storyData = parseAIJSON(responseText);
+  } catch {
+    // If JSON parsing fails, construct a basic story from raw text
+    const rawText = extractAIContent(storyResponse);
+    storyData = {
+      title: body.title,
+      description: "An AI-generated children's story",
+      chapters: [
+        {
+          chapterNumber: 1,
+          title: `The Story of ${body.title}`,
+          content: rawText.slice(0, 5000),
+          scenes: [],
+        },
+      ],
+    };
+  }
+
+  // Enrich chapters with scenes
+  const rawChapters = Array.isArray(storyData.chapters) ? storyData.chapters : [];
+  const enrichedChapters = enrichChaptersWithScenes(rawChapters, body.ageGroup, body.includeIllustrations);
+
+  // Build the final story
+  const moralLesson = (storyData.moral as string) || body.moral || "Kindness and courage can overcome any challenge.";
+
+  const completeStory = {
+    ...storyData,
+    title: (storyData.title as string) || body.title,
+    ageGroup: body.ageGroup,
+    genre: body.genre,
+    language: body.language,
+    moral: moralLesson,
+    includeIllustrations: body.includeIllustrations,
+    includeNarration: body.includeNarration,
+    chapters: enrichedChapters,
+    status: "DRAFT",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  return completeStory;
+}
+
+// ============================================================
 // SSE Helper
 // ============================================================
 
@@ -90,7 +322,7 @@ function createSSEMessage(event: string, data: unknown) {
 }
 
 // ============================================================
-// POST Handler — AI Story Generation with SSE
+// POST Handler — AI Story Generation (SSE or JSON mode)
 // ============================================================
 
 export async function POST(request: NextRequest) {
@@ -118,84 +350,24 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Create the AI client
-  let ai: ZAI;
-  try {
-    ai = await ZAI.create();
-  } catch {
-    return new Response(
-      JSON.stringify({ error: "AI service unavailable" }),
-      { status: 503, headers: { "Content-Type": "application/json" } }
-    );
+  // JSON mode: return the complete story as a single JSON response
+  if (body.mode === "json") {
+    try {
+      const story = await generateStory(body);
+      return new Response(
+        JSON.stringify({ success: true, story }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+      return new Response(
+        JSON.stringify({ success: false, error: errorMessage }),
+        { status: 500, headers: { "Content-Type": "application/json" } }
+      );
+    }
   }
 
-  // Build the story generation prompt
-  const ageDescription = AGE_GROUP_PROMPTS[body.ageGroup] || AGE_GROUP_PROMPTS.CHILD;
-  const genreDescription = GENRE_PROMPTS[body.genre] || "an engaging story";
-  const characterDescriptions = body.characters?.length
-    ? body.characters
-        .map(
-          (c) =>
-            `${c.name}${c.role ? ` (${c.role})` : ""}${c.description ? ` — ${c.description}` : ""}`
-        )
-        .join(", ")
-    : "Create suitable characters for the story";
-
-  const systemPrompt = `You are StoryNest AI, a world-class children's storyteller. You create age-appropriate, engaging, and magical stories for children. Your stories are creative, have vivid imagery, and always include a positive moral lesson.
-
-You MUST respond with valid JSON only. No markdown, no code fences, no extra text.
-
-The story should be written for children who are ${ageDescription}.
-The genre is ${genreDescription}.
-The story should be written in ${body.language === "en" ? "English" : body.language}.
-${body.moral ? `The moral lesson should be: "${body.moral}"` : "Include an appropriate moral lesson."}
-The story should have ${body.chapters} chapter(s).
-${body.includeIllustrations ? "Include scene description prompts for illustrations." : "No illustration prompts needed."}
-
-Characters: ${characterDescriptions}`;
-
-  const userPrompt = `Create a complete children's story titled "${body.title}" with the following structure. Respond with ONLY a JSON object in this exact format:
-
-{
-  "title": "${body.title}",
-  "description": "A brief 1-2 sentence description of the story",
-  "ageGroup": "${body.ageGroup}",
-  "genre": "${body.genre}",
-  "language": "${body.language}",
-  "moral": "The moral lesson of the story",
-  "readingTime": <estimated reading time in minutes>,
-  "chapters": [
-    {
-      "chapterNumber": 1,
-      "title": "Chapter title",
-      "content": "The full chapter text with dialogue, descriptions, and narrative...",
-      "wordCount": <word count>,
-      "readingTime": <reading time in seconds>,
-      "scenes": [
-        {
-          "title": "Scene title",
-          "narrative": "The narrative text for this scene",
-          "dialogue": "[{\\"speaker\\": \\"Character Name\\", \\"line\\": \\"Dialogue text\\"}]",
-          "emotion": "primary emotion",
-          "setting": "Scene setting description",
-          "illustrationPrompt": "${body.includeIllustrations ? "Detailed prompt for generating a children's book illustration for this scene, in a warm, whimsical, watercolor style" : ""}"
-        }
-      ]
-    }
-  ],
-  "characters": [
-    {
-      "name": "Character name",
-      "description": "Character description",
-      "type": "CHILD|ADULT|ANIMAL|MAGICAL_CREATURE|ROBOT|OTHER",
-      "role": "PROTAGONIST|ANTAGONIST|SUPPORTING|MENTOR|SIDEKICK"
-    }
-  ]
-}
-
-Make the story vivid, engaging, and age-appropriate. Use descriptive language that sparks imagination.`;
-
-  // Set up SSE stream
+  // SSE mode: stream progress events
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
@@ -208,234 +380,45 @@ Make the story vivid, engaging, and age-appropriate. Use descriptive language th
       };
 
       try {
-        // Step 1: Planning story structure
-        sendProgress("Planning story structure", 10, {
-          message: "Analyzing your story parameters...",
+        sendProgress("Preparing story generation", 5, {
+          message: "Setting up the AI storyteller...",
         });
 
-        const planningResponse = await ai.chat.completions.create({
-          messages: [
-            {
-              role: "system",
-              content: `You are a children's story planner. Create a brief story outline. Respond with ONLY valid JSON: { "outline": "brief 2-3 sentence outline", "themes": ["theme1", "theme2"], "keyMoments": ["moment1", "moment2", "moment3"] }`,
-            },
-            {
-              role: "user",
-              content: `Plan a ${body.ageGroup} ${body.genre} story titled "${body.title}" with ${body.chapters} chapters. ${body.moral ? `Moral: ${body.moral}` : ""}`,
-            },
-          ],
-        });
-
-        let planData: Record<string, unknown> = {};
+        // Create AI client
         try {
-          // Extract content from SDK response (format: {choices: [{message: {content: "..."}}]})
-          let planText: string;
-          if (typeof planningResponse === "string") {
-            planText = planningResponse;
-          } else if (planningResponse && typeof planningResponse === "object" && "choices" in planningResponse) {
-            planText = (planningResponse as { choices: Array<{ message: { content: string } }> }).choices[0]?.message?.content || "";
-          } else {
-            planText = JSON.stringify(planningResponse);
-          }
-          // Strip markdown code fences if present (```json ... ```)
-          planText = planText.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "").trim();
-          const planMatch = planText.match(/\{[\s\S]*\}/);
-          if (planMatch) {
-            planData = JSON.parse(planMatch[0]);
-          }
+          await ZAI.create();
         } catch {
-          planData = { outline: "Story planning complete" };
+          sendEvent("error", { error: "AI service is currently unavailable. Please try again later." });
+          controller.close();
+          return;
         }
 
-        sendProgress("Planning story structure", 20, {
-          message: "Story structure planned!",
-          plan: planData,
+        sendProgress("Planning your story", 15, {
+          message: "Thinking about the perfect story for you...",
         });
 
-        // Step 2: Generating chapters
-        sendProgress("Generating chapters", 30, {
-          message: `Writing ${body.chapters} chapter(s)...`,
-        });
-
-        const storyResponse = await ai.chat.completions.create({
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt },
-          ],
-        });
-
-        sendProgress("Generating chapters", 60, {
-          message: "Chapters written!",
-        });
-
-        // Parse the AI response
-        let storyData: Record<string, unknown> = {};
-        try {
-          // Extract content from SDK response (format: {choices: [{message: {content: "..."}}]})
-          let responseText: string;
-          if (typeof storyResponse === "string") {
-            responseText = storyResponse;
-          } else if (storyResponse && typeof storyResponse === "object" && "choices" in storyResponse) {
-            responseText = (storyResponse as { choices: Array<{ message: { content: string } }> }).choices[0]?.message?.content || "";
-          } else {
-            responseText = JSON.stringify(storyResponse);
-          }
-          // Try to extract JSON from the response
-          // Strip markdown code fences if present (```json ... ```)
-          responseText = responseText.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "").trim();
-          const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            storyData = JSON.parse(jsonMatch[0]);
-          } else {
-            // Fallback: construct a basic story object from raw text
-            storyData = {
-              title: body.title,
-              description: "An AI-generated children's story",
-              chapters: [
-                {
-                  chapterNumber: 1,
-                  title: "Chapter 1",
-                  content: responseText.slice(0, 3000),
-                  scenes: [],
-                },
-              ],
-            };
-          }
-        } catch {
-          storyData = {
-            title: body.title,
-            description: "An AI-generated children's story",
-            chapters: [],
-          };
-        }
+        // Generate the story
+        const story = await generateStory(body);
 
         sendProgress("Creating scene descriptions", 70, {
           message: "Crafting vivid scene descriptions...",
         });
 
-        // Step 3: Scene descriptions (enrich if needed — create scenes from chapter content when missing)
-        const chapters = Array.isArray(storyData.chapters)
-          ? storyData.chapters
-          : [];
-        for (const chapter of chapters) {
-          const ch = chapter as Record<string, unknown> & {
-            scenes?: Array<Record<string, unknown>>;
-            content?: string;
-            title?: string;
-          };
-          if (Array.isArray(ch.scenes) && ch.scenes.length > 0) {
-            continue; // Scenes already exist from the main generation
-          }
-          // No scenes — create them from chapter content
-          if (ch.content && typeof ch.content === "string" && ch.content.trim()) {
-            // Split content into paragraphs for scenes
-            const paragraphs = ch.content.split(/\n\n+/).filter((p: string) => p.trim().length > 20);
-            ch.scenes = paragraphs.length > 0
-              ? paragraphs.map((para: string, idx: number) => ({
-                  title: `${ch.title || "Chapter"} - Part ${idx + 1}`,
-                  narrative: para.trim(),
-                  dialogue: [],
-                  emotion: "wonder",
-                  setting: "",
-                }))
-              : [{
-                  title: ch.title || "Chapter",
-                  narrative: ch.content.trim(),
-                  dialogue: [],
-                  emotion: "wonder",
-                  setting: "",
-                }];
-          } else {
-            // No content at all, add a placeholder scene
-            ch.scenes = [{
-              title: ch.title || "Chapter",
-              narrative: "The story unfolds...",
-              dialogue: [],
-              emotion: "wonder",
-              setting: "",
-            }];
-          }
-        }
-
-        sendProgress("Creating scene descriptions", 75, {
-          message: "Scene descriptions ready!",
+        sendProgress("Adding finishing touches", 90, {
+          message: "Almost done...",
         });
 
-        // Step 4: Generating illustration prompts
-        if (body.includeIllustrations) {
-          sendProgress("Generating illustration prompts", 80, {
-            message: "Creating magical illustration prompts...",
-          });
-
-          // Enrich illustration prompts if they're empty
-          for (const chapter of chapters) {
-            const ch = chapter as Record<string, unknown> & {
-              scenes?: Array<Record<string, unknown>>;
-            };
-            if (Array.isArray(ch.scenes)) {
-              for (const scene of ch.scenes) {
-                if (!scene.illustrationPrompt && scene.setting) {
-                  scene.illustrationPrompt = `Children's book illustration, warm whimsical watercolor style: ${scene.setting}. Age group: ${body.ageGroup}. Soft lighting, gentle colors, magical atmosphere.`;
-                }
-              }
-            }
-          }
-
-          sendProgress("Generating illustration prompts", 90, {
-            message: "Illustration prompts created!",
-          });
-        } else {
-          sendProgress("Generating illustration prompts", 90, {
-            message: "Skipped (illustrations not requested)",
-          });
-        }
-
-        // Step 5: Creating moral lesson
-        sendProgress("Creating moral lesson", 92, {
-          message: "Weaving in the moral lesson...",
-        });
-
-        const moralLesson =
-          (storyData.moral as string) ||
-          body.moral ||
-          "Kindness and courage can overcome any challenge.";
-
-        sendProgress("Creating moral lesson", 95, {
-          message: "Moral lesson integrated!",
-        });
-
-        // Final: Send the complete story
-        const completeStory = {
-          ...storyData,
-          title: (storyData.title as string) || body.title,
-          ageGroup: body.ageGroup,
-          genre: body.genre,
-          language: body.language,
-          moral: moralLesson,
-          includeIllustrations: body.includeIllustrations,
-          includeNarration: body.includeNarration,
-          status: "DRAFT",
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-
+        // Send the complete story
         sendEvent("complete", {
           step: "Story generation complete",
           progress: 100,
-          story: completeStory,
+          story,
         });
 
         controller.close();
       } catch (error) {
-        const errorMessage =
-          error instanceof Error ? error.message : "Unknown error occurred";
-
-        sendEvent("error", {
-          step: "Error",
-          progress: 0,
-          error: errorMessage,
-        });
-
+        const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+        sendEvent("error", { error: errorMessage });
         controller.close();
       }
     },

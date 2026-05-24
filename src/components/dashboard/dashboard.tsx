@@ -273,52 +273,7 @@ export default function Dashboard() {
     updateProgress({ step: '', progress: 0 })
   }, [setGenerating, updateProgress])
 
-  // ===== Create a fallback story if AI fails =====
-  const createFallbackStory = useCallback(() => {
-    const chapters = []
-    for (let i = 0; i < chapterCount; i++) {
-      chapters.push({
-        chapterNumber: i + 1,
-        title: i === 0 ? 'The Beginning' : i === chapterCount - 1 ? 'The Happy Ending' : `Chapter ${i + 1}`,
-        content: i === 0
-          ? `Once upon a time, in a land filled with wonder and magic, there lived a brave young hero named ${characters[0]?.name || 'the Adventurer'}. ${characters[0]?.description || 'They were known throughout the land for their courage and kindness.'} One day, something extraordinary happened that would change everything...`
-          : i === chapterCount - 1
-            ? `And so, our hero learned that ${storyForm.moral || 'true courage comes from being kind to others'}. From that day on, everyone in the land remembered this wonderful story, and they all lived happily ever after. The end.`
-            : `The adventure continued as our hero faced new challenges and made new friends along the way. Each step brought them closer to their goal, and with every challenge, they grew braver and wiser.`,
-        scenes: [{
-          title: i === 0 ? 'A New Beginning' : i === chapterCount - 1 ? 'The Lesson' : `Part ${i + 1}`,
-          narrative: i === 0
-            ? `Once upon a time, in a land filled with wonder and magic, there lived a brave young hero. One day, something extraordinary happened that would change everything.`
-            : i === chapterCount - 1
-              ? `And so, our hero learned that ${storyForm.moral || 'true courage comes from being kind to others'}. From that day on, everyone lived happily ever after.`
-              : `The adventure continued as our hero faced new challenges and made new friends along the way.`,
-          dialogue: [],
-          emotion: i === 0 ? 'wonder' : i === chapterCount - 1 ? 'happiness' : 'determination',
-          setting: i === 0 ? 'A magical land at the beginning of an adventure' : i === chapterCount - 1 ? 'A peaceful village, restored to happiness' : 'A path through an enchanted forest',
-        }],
-      })
-    }
-
-    return {
-      id: crypto.randomUUID(),
-      title: storyForm.title,
-      content: JSON.stringify(chapters),
-      pages: [],
-      ageGroup: storyForm.ageGroup as AgeGroup,
-      genre: storyForm.genre as StoryGenre,
-      moral: storyForm.moral || undefined,
-      characters,
-      language: storyForm.language,
-      includeIllustrations: storyForm.includeIllustrations,
-      includeNarration: storyForm.includeNarration,
-      coverImageUrl: undefined,
-      readingTimeMinutes: chapterCount * 3,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    }
-  }, [storyForm, characters, chapterCount])
-
-  // ===== SSE Story Generation =====
+  // ===== Story Generation (JSON mode - more reliable than SSE) =====
   const handleGenerateStory = useCallback(async () => {
     if (!storyForm.title || !storyForm.genre || !storyForm.ageGroup) return
 
@@ -340,12 +295,23 @@ export default function Dashboard() {
       includeIllustrations: storyForm.includeIllustrations,
       includeNarration: storyForm.includeNarration,
       chapters: chapterCount,
+      mode: 'json' as const,  // Use JSON mode for reliability
     }
 
-    // Create an AbortController for timeout and cancellation
+    // Create an AbortController for cancellation
     const controller = new AbortController()
     abortControllerRef.current = controller
-    const timeoutId = setTimeout(() => controller.abort(), 120000) // 2 minute timeout
+    const timeoutId = setTimeout(() => controller.abort(), 180000) // 3 minute timeout
+
+    // Simulate progress while waiting for the AI
+    const progressInterval = setInterval(() => {
+      setCurrentGenStep((prev) => {
+        if (prev < 3) return prev + 1
+        return prev
+      })
+    }, 8000)
+
+    updateProgress({ step: 'Generating your story...', progress: 10 })
 
     try {
       const response = await fetch('/api/stories/generate', {
@@ -366,122 +332,67 @@ export default function Dashboard() {
         throw new Error(errorMsg)
       }
 
-      const reader = response.body?.getReader()
-      if (!reader) throw new Error('No response stream received')
+      const result = await response.json()
 
-      const decoder = new TextDecoder()
-      let buffer = ''
-      let currentEvent = ''
-      let currentData = ''
+      if (!result.success || !result.story) {
+        throw new Error(result.error || 'Failed to generate story')
+      }
 
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
+      const storyData = result.story
+      const chaptersForContent = Array.isArray(storyData.chapters)
+        ? storyData.chapters
+        : []
 
-        buffer += decoder.decode(value, { stream: true })
-
-        // Parse SSE events from buffer
-        const lines = buffer.split('\n')
-        // Keep the last incomplete line in the buffer
-        buffer = lines.pop() || ''
-
-        for (const line of lines) {
-          if (line.startsWith('event: ')) {
-            currentEvent = line.slice(7).trim()
-          } else if (line.startsWith('data: ')) {
-            // Accumulate data (support multi-line data fields)
-            currentData += (currentData ? '\n' : '') + line.slice(6)
-          } else if (line.trim() === '' && currentEvent && currentData) {
-            try {
-              const parsed = JSON.parse(currentData)
-
-              if (currentEvent === 'progress') {
-                updateProgress({ step: parsed.step, progress: parsed.progress })
-
-                // Update current step based on progress
-                if (parsed.progress <= 20) setCurrentGenStep(0)
-                else if (parsed.progress <= 60) setCurrentGenStep(1)
-                else if (parsed.progress <= 75) setCurrentGenStep(2)
-                else if (parsed.progress <= 90) setCurrentGenStep(3)
-                else setCurrentGenStep(4)
-              } else if (currentEvent === 'complete') {
-                updateProgress({ step: 'Complete', progress: 100 })
-                setCurrentGenStep(4)
-
-                const storyData = parsed.story
-                if (storyData) {
-                  // Build the content from chapters (including scenes)
-                  const chaptersForContent = Array.isArray(storyData.chapters)
-                    ? storyData.chapters
-                    : []
-
-                  addStory({
-                    id: storyData.id || crypto.randomUUID(),
-                    title: storyData.title || storyForm.title,
-                    content: JSON.stringify(chaptersForContent),
-                    pages: [],
-                    ageGroup: storyForm.ageGroup as AgeGroup,
-                    genre: storyForm.genre as StoryGenre,
-                    moral: storyData.moral || storyForm.moral || undefined,
-                    characters,
-                    language: storyForm.language,
-                    includeIllustrations: storyForm.includeIllustrations,
-                    includeNarration: storyForm.includeNarration,
-                    coverImageUrl: undefined,
-                    readingTimeMinutes: storyData.readingTime || chapterCount * 3,
-                    createdAt: new Date().toISOString(),
-                    updatedAt: new Date().toISOString(),
-                  })
-                }
-
-                setTimeout(() => {
-                  setGenerating(false)
-                  setGenerationError(null)
-                  setActiveTab('my-stories')
-                }, 1500)
-              } else if (currentEvent === 'error') {
-                const errMsg = parsed.error || parsed.message || 'Story generation failed'
-                setGenerationError(errMsg)
-                updateProgress({ step: 'Error', progress: 0 })
-              }
-            } catch (parseErr) {
-              console.warn('SSE parse error:', parseErr, 'Data:', currentData)
-            }
-
-            currentEvent = ''
-            currentData = ''
-          }
+      // Calculate total scenes for reading time
+      let totalScenes = 0
+      for (const ch of chaptersForContent) {
+        const chObj = ch as Record<string, unknown>
+        if (Array.isArray(chObj.scenes)) {
+          totalScenes += chObj.scenes.length
         }
       }
 
-      // If we exited the loop without receiving a 'complete' event, something went wrong
-      if (!generationError) {
-        // Check if story was already added (from complete event)
+      updateProgress({ step: 'Complete', progress: 100 })
+      setCurrentGenStep(4)
+
+      addStory({
+        id: storyData.id || crypto.randomUUID(),
+        title: storyData.title || storyForm.title,
+        content: JSON.stringify(chaptersForContent),
+        pages: [],
+        ageGroup: storyForm.ageGroup as AgeGroup,
+        genre: storyForm.genre as StoryGenre,
+        moral: storyData.moral || storyForm.moral || undefined,
+        characters,
+        language: storyForm.language,
+        includeIllustrations: storyForm.includeIllustrations,
+        includeNarration: storyForm.includeNarration,
+        coverImageUrl: undefined,
+        readingTimeMinutes: storyData.readingTime || Math.max(totalScenes * 2, 3),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      })
+
+      setTimeout(() => {
         setGenerating(false)
-      }
+        setGenerationError(null)
+        setActiveTab('my-stories')
+      }, 1500)
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
-        setGenerationError('Story generation timed out. Please try again.')
+        setGenerationError('Story generation was cancelled or timed out. Please try again.')
       } else {
         const errMsg = error instanceof Error ? error.message : 'Unknown error occurred'
         console.error('Story generation failed:', error)
-
-        // Create a fallback story so the user still gets something
-        setGenerationError(`AI generation failed: ${errMsg}. Creating a template story instead...`)
-        const fallbackStory = createFallbackStory()
-        addStory(fallbackStory)
-
-        setTimeout(() => {
-          setGenerating(false)
-          setGenerationError(null)
-          setActiveTab('my-stories')
-        }, 2000)
+        setGenerationError(`Failed to generate story: ${errMsg}`)
       }
+      updateProgress({ step: 'Error', progress: 0 })
     } finally {
+      clearInterval(progressInterval)
       clearTimeout(timeoutId)
       abortControllerRef.current = null
     }
-  }, [storyForm, characters, chapterCount, setGenerating, updateProgress, addStory, createFallbackStory, generationError])
+  }, [storyForm, characters, chapterCount, setGenerating, updateProgress, addStory])
 
   // ===== Character management =====
   const addCharacter = useCallback((template?: typeof CHARACTER_TEMPLATES[number]) => {
@@ -869,7 +780,18 @@ export default function Dashboard() {
                               className="mt-6 p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-center"
                             >
                               <AlertCircle className="w-6 h-6 text-red-500 mx-auto mb-2" />
-                              <p className="text-sm text-red-600 dark:text-red-400 font-medium">{generationError}</p>
+                              <p className="text-sm text-red-600 dark:text-red-400 font-medium mb-3">{generationError}</p>
+                              <Button
+                                onClick={() => {
+                                  setGenerationError(null)
+                                  handleGenerateStory()
+                                }}
+                                className="bg-red-500 hover:bg-red-600 text-white gap-2"
+                                size="sm"
+                              >
+                                <Sparkles className="w-4 h-4" />
+                                Try Again
+                              </Button>
                             </motion.div>
                           )}
 
