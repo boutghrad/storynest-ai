@@ -170,6 +170,18 @@ const footerLinks = {
   Legal: ['Privacy', 'Terms', 'COPPA', 'Cookie Policy', 'Licenses'],
 }
 
+// ===== Landing Page Props =====
+interface LandingPageProps {
+  onSignIn?: () => void
+  onGetStarted?: () => void
+}
+
+// ===== Landing Page Props =====
+interface LandingPageProps {
+  onSignIn?: () => void
+  onGetStarted?: () => void
+}
+
 // ===== Sub-Components =====
 
 function FloatingElement({ children, className, delay = 0 }: { children: React.ReactNode; className?: string; delay?: number }) {
@@ -281,7 +293,7 @@ function StorybookVisual() {
   )
 }
 
-function Navbar() {
+function Navbar({ onSignIn, onGetStarted }: { onSignIn?: () => void; onGetStarted?: () => void }) {
   const [scrolled, setScrolled] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
 
@@ -329,12 +341,13 @@ function Navbar() {
 
           {/* CTA Buttons */}
           <div className="hidden md:flex items-center gap-3">
-            <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground">
+            <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground" onClick={onSignIn}>
               Sign In
             </Button>
             <Button
               size="sm"
               className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-lg shadow-amber-500/25 hover:shadow-amber-500/40 transition-all"
+              onClick={onGetStarted}
             >
               <Sparkles className="w-4 h-4" />
               Start Creating
@@ -373,10 +386,11 @@ function Navbar() {
                 </a>
               ))}
               <div className="flex gap-3 pt-2">
-                <Button variant="outline" size="sm" className="flex-1">Sign In</Button>
+                <Button variant="outline" size="sm" className="flex-1" onClick={() => { onSignIn?.(); setMobileOpen(false); }}>Sign In</Button>
                 <Button
                   size="sm"
                   className="flex-1 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white"
+                  onClick={() => { onGetStarted?.(); setMobileOpen(false); }}
                 >
                   <Sparkles className="w-4 h-4" />
                   Start Creating
@@ -390,7 +404,7 @@ function Navbar() {
   )
 }
 
-function HeroSection() {
+function HeroSection({ onGetStarted }: { onGetStarted?: () => void }) {
   const mouseX = useMotionValue(0)
   const mouseY = useMotionValue(0)
   const springX = useSpring(mouseX, { stiffness: 50, damping: 20 })
@@ -473,6 +487,7 @@ function HeroSection() {
               <Button
                 size="lg"
                 className="w-full sm:w-auto bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-xl shadow-amber-500/25 hover:shadow-amber-500/40 transition-all text-base px-8 h-12"
+                onClick={onGetStarted}
               >
                 <Sparkles className="w-5 h-5" />
                 Create Your First Story
@@ -661,7 +676,7 @@ function HowItWorksSection() {
   )
 }
 
-function PricingSection() {
+function PricingSection({ onGetStarted }: { onGetStarted?: () => void }) {
   // Override highlight: Family plan should be "Most Popular"
   const plans = SUBSCRIPTION_PLANS.map((plan) => ({
     ...plan,
@@ -761,6 +776,7 @@ function PricingSection() {
                 }`}
                 variant={plan.id === 'free' ? 'outline' : 'default'}
                 size="lg"
+                onClick={onGetStarted}
               >
                 {plan.cta}
               </Button>
@@ -906,7 +922,7 @@ function TestimonialsSection() {
   )
 }
 
-function FinalCTASection() {
+function FinalCTASection({ onGetStarted }: { onGetStarted?: () => void }) {
   return (
     <section className="py-20 sm:py-28 px-4 relative overflow-hidden">
       <div className="absolute inset-0 bg-gradient-to-br from-amber-100/60 via-orange-50/40 to-violet-100/50 dark:from-amber-950/30 dark:via-orange-950/20 dark:to-violet-950/30 pointer-events-none" />
@@ -948,6 +964,7 @@ function FinalCTASection() {
           <Button
             size="lg"
             className="bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 hover:from-amber-600 hover:via-orange-600 hover:to-rose-600 text-white shadow-2xl shadow-amber-500/30 hover:shadow-amber-500/50 transition-all text-lg px-10 h-14 rounded-xl"
+            onClick={onGetStarted}
           >
             <Sparkles className="w-5 h-5" />
             Create Your First Story — It&apos;s Free
@@ -1043,17 +1060,17 @@ function Footer() {
 }
 
 // ===== Main Landing Page Component =====
-export default function LandingPage() {
+export default function LandingPage({ onSignIn, onGetStarted }: LandingPageProps) {
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      <Navbar />
+      <Navbar onSignIn={onSignIn} onGetStarted={onGetStarted} />
       <main className="flex-1">
-        <HeroSection />
+        <HeroSection onGetStarted={onGetStarted} />
         <FeaturesSection />
         <HowItWorksSection />
-        <PricingSection />
+        <PricingSection onGetStarted={onGetStarted} />
         <TestimonialsSection />
-        <FinalCTASection />
+        <FinalCTASection onGetStarted={onGetStarted} />
       </main>
       <Footer />
     </div>

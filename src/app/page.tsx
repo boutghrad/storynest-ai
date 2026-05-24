@@ -46,23 +46,7 @@ export default function Home() {
   const [authForm, setAuthForm] = useState({ name: '', email: '', password: '' });
   const [authLoading, setAuthLoading] = useState(false);
 
-  // Auto-login for demo purposes
-  useEffect(() => {
-    if (!isAuthenticated) {
-      const timer = setTimeout(() => {
-        login({
-          id: 'demo-user-1',
-          email: 'parent@storynest.ai',
-          name: 'Sarah Johnson',
-          image: null,
-          role: 'parent',
-          subscription: 'family',
-          credits: 142,
-        });
-      }, 2000);
-      return () => clearTimeout(timer);
-    }
-  }, [isAuthenticated, login]);
+  // Auto-login removed — users must click Sign In or Start Creating to authenticate
 
   const handleAuth = useCallback(async () => {
     setAuthLoading(true);
@@ -95,10 +79,22 @@ export default function Home() {
     setView('landing');
   }, [logout, setView]);
 
+  const handleSignIn = useCallback(() => {
+    setAuthMode('login');
+    setAuthForm({ name: '', email: '', password: '' });
+    setShowAuthModal(true);
+  }, []);
+
+  const handleGetStarted = useCallback(() => {
+    setAuthMode('signup');
+    setAuthForm({ name: '', email: '', password: '' });
+    setShowAuthModal(true);
+  }, []);
+
   const renderView = () => {
     switch (currentView) {
       case 'landing':
-        return <LandingPage />;
+        return <LandingPage onSignIn={handleSignIn} onGetStarted={handleGetStarted} />;
       case 'dashboard':
         return <Dashboard />;
       case 'reader':
@@ -110,11 +106,11 @@ export default function Home() {
       case 'parent':
         return <ParentControls />;
       case 'pricing':
-        return <LandingPage />;
+        return <LandingPage onSignIn={handleSignIn} onGetStarted={handleGetStarted} />;
       case 'story-create':
         return <Dashboard />;
       default:
-        return <LandingPage />;
+        return <LandingPage onSignIn={handleSignIn} onGetStarted={handleGetStarted} />;
     }
   };
 
