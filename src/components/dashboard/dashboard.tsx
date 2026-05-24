@@ -58,7 +58,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Separator } from '@/components/ui/separator'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { useStorySlice, useAuthSlice, useLibrarySlice } from '@/stores/app-store'
+import { useStorySlice, useAuthSlice, useLibrarySlice, useAppStore } from '@/stores/app-store'
 import { STORY_GENRES, AGE_GROUPS, NARRATION_VOICES } from '@/lib/constants'
 import { cn, getAgeGroupLabel, formatNumber } from '@/lib/utils'
 import type { StoryGenre, AgeGroup, StoryLanguage, StoryCharacter } from '@/stores/app-store'
@@ -242,6 +242,8 @@ export default function Dashboard() {
     resetStoryForm,
   } = useStorySlice()
   const { folders, savedStories, toggleFavorite } = useLibrarySlice()
+  const setCurrentStory = useAppStore((s) => s.setCurrentStory)
+  const setView = useAppStore((s) => s.setView)
 
   const [activeTab, setActiveTab] = useState('my-stories')
   const [chapterCount, setChapterCount] = useState(3)
@@ -424,6 +426,30 @@ export default function Dashboard() {
     return true
   })
 
+  // ===== Open story in reader =====
+  const openStory = useCallback((story: Record<string, unknown>) => {
+    // Build a proper Story object for the reader
+    const storyObj = {
+      id: String(story.id),
+      title: String(story.title || 'Untitled'),
+      content: 'content' in story ? String((story as Record<string, unknown>).content) : '',
+      pages: 'pages' in story ? ((story as Record<string, unknown>).pages as { pageNumber: number; text: string; illustrationUrl?: string; illustrationPrompt?: string }[]) : [],
+      ageGroup: (story.ageGroup as '2-4' | '4-6' | '6-8' | '8-10' | '10-12') || '6-8',
+      genre: (story.genre as 'adventure' | 'fantasy' | 'bedtime' | 'educational' | 'friendship' | 'mystery' | 'scifi' | 'fairy-tale' | 'animal' | 'comedy') || 'fantasy',
+      moral: story.moral ? String(story.moral) : undefined,
+      characters: (story.characters as { name: string; description: string; traits: string[] }[]) || [],
+      language: (story.language as 'en' | 'es' | 'fr' | 'de' | 'zh' | 'ja' | 'ko' | 'pt') || 'en',
+      includeIllustrations: Boolean(story.includeIllustrations),
+      includeNarration: Boolean(story.includeNarration),
+      coverImageUrl: story.coverImageUrl ? String(story.coverImageUrl) : undefined,
+      readingTimeMinutes: Number(story.readingTimeMinutes || (story as Record<string, unknown>).readingTime || 5),
+      createdAt: String(story.createdAt || new Date().toISOString()),
+      updatedAt: String(story.updatedAt || new Date().toISOString()),
+    }
+    setCurrentStory(storyObj)
+    setView('reader')
+  }, [setCurrentStory, setView])
+
   // Cleanup event source on unmount
   useEffect(() => {
     return () => {
@@ -595,7 +621,7 @@ export default function Dashboard() {
                           const GenreIcon = genreIcon
                           return (
                             <motion.div key={story.id} variants={staggerItem}>
-                              <Card className="storybook-card overflow-hidden cursor-pointer group">
+                              <Card className="storybook-card overflow-hidden cursor-pointer group" onClick={() => openStory(story)}>
                                 {/* Cover Image Placeholder */}
                                 <div className={cn('h-36 bg-gradient-to-br flex items-center justify-center relative', genreGrad)}>
                                   <GenreIcon className="w-12 h-12 text-white/80" />
@@ -633,10 +659,10 @@ export default function Dashboard() {
                                       {new Date(story.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                                     </span>
                                     <div className="flex items-center gap-1">
-                                      <Button variant="ghost" size="icon" className="h-7 w-7">
+                                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); openStory(story); }}>
                                         <Play className="w-3.5 h-3.5" />
                                       </Button>
-                                      <Button variant="ghost" size="icon" className="h-7 w-7">
+                                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => e.stopPropagation()}>
                                         <Heart className="w-3.5 h-3.5" />
                                       </Button>
                                     </div>

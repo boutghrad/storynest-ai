@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ChevronLeft,
@@ -17,15 +17,15 @@ import {
   BookOpen,
   Sparkles,
   Trees,
-  Star,
+  ArrowLeft,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
-import { useReaderSlice } from '@/stores/app-store';
+import { useReaderSlice, useAppStore } from '@/stores/app-store';
+import type { Story } from '@/stores/app-store';
 
 // =============================================================================
 // Types
@@ -58,6 +58,7 @@ interface StoryData {
   genre: string;
   ageGroup: string;
   chapters: Chapter[];
+  moral?: string;
 }
 
 // =============================================================================
@@ -71,6 +72,16 @@ const EMOTION_EMOJI: Record<string, string> = {
   happiness: '😊',
   sadness: '😢',
   excitement: '🎉',
+  curiosity: '🔍',
+  fear: '😨',
+  surprise: '😲',
+  love: '❤️',
+  joy: '😊',
+  hope: '🌈',
+  courage: '🦁',
+  peace: '☮️',
+  mystery: '🔮',
+  playful: '🎭',
 };
 
 // =============================================================================
@@ -84,6 +95,16 @@ const EMOTION_GRADIENT: Record<string, string> = {
   happiness: 'from-yellow-300 via-amber-300 to-lime-300',
   sadness: 'from-slate-400 via-blue-300 to-indigo-300',
   excitement: 'from-pink-400 via-rose-400 to-red-400',
+  curiosity: 'from-cyan-400 via-teal-300 to-emerald-400',
+  fear: 'from-gray-500 via-slate-500 to-zinc-500',
+  surprise: 'from-yellow-400 via-orange-300 to-red-400',
+  love: 'from-pink-400 via-rose-300 to-red-300',
+  joy: 'from-yellow-300 via-lime-300 to-green-300',
+  hope: 'from-sky-400 via-blue-300 to-indigo-300',
+  courage: 'from-orange-400 via-amber-400 to-yellow-400',
+  peace: 'from-emerald-300 via-teal-300 to-cyan-300',
+  mystery: 'from-violet-400 via-purple-400 to-indigo-400',
+  playful: 'from-pink-300 via-purple-300 to-blue-300',
 };
 
 // =============================================================================
@@ -99,7 +120,7 @@ const TEXT_SIZE_MAP: Record<TextSize, { narrative: string; dialogue: string; tit
 };
 
 // =============================================================================
-// Mock Story Data
+// Mock Story Data (fallback)
 // =============================================================================
 
 const mockStory: StoryData = {
@@ -228,6 +249,215 @@ const mockStory: StoryData = {
 };
 
 // =============================================================================
+// Parse dialogue from various formats
+// =============================================================================
+
+function parseDialogue(raw: unknown): Dialogue[] {
+  if (Array.isArray(raw)) {
+    return raw.map((item: unknown) => {
+      if (typeof item === 'object' && item !== null) {
+        const obj = item as Record<string, unknown>;
+        // Format from API: { speaker, line }
+        if ('speaker' in obj && 'line' in obj) {
+          return { character: String(obj.speaker), text: String(obj.line) };
+        }
+        // Format from reader: { character, text }
+        if ('character' in obj && 'text' in obj) {
+          return { character: String(obj.character), text: String(obj.text) };
+        }
+        // Try any combination
+        const keys = Object.keys(obj);
+        if (keys.length >= 2) {
+          return { character: String(obj[keys[0]]), text: String(obj[keys[1]]) };
+        }
+      }
+      return { character: 'Narrator', text: String(item) };
+    });
+  }
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parseDialogue(parsed);
+      }
+    } catch {
+      // Not JSON, treat as plain text
+      if (raw.trim()) {
+        return [{ character: 'Narrator', text: raw }];
+      }
+    }
+  }
+  return [];
+}
+
+// =============================================================================
+// Convert a Story from the store to StoryData format for the reader
+// =============================================================================
+
+function storyToStoryData(story: Story): StoryData {
+  // Try to parse chapters from the content field
+  let chapters: Chapter[] = [];
+
+  if (story.content) {
+    try {
+      const parsed = JSON.parse(story.content);
+      if (Array.isArray(parsed)) {
+        // Content is chapters array from the API
+        chapters = parsed.map((ch: Record<string, unknown>, ci: number) => {
+          const scenes = Array.isArray(ch.scenes)
+            ? ch.scenes.map((sc: Record<string, unknown>, si: number) => ({
+                id: `c${ci + 1}-s${si + 1}`,
+                title: String(sc.title || `Scene ${si + 1}`),
+                narrative: String(sc.narrative || sc.content || ''),
+                dialogue: parseDialogue(sc.dialogue),
+                emotion: String(sc.emotion || 'wonder').toLowerCase(),
+                setting: String(sc.setting || ''),
+              }))
+            : [];
+
+          // If no scenes, create one from chapter content
+          if (scenes.length === 0 && ch.content) {
+            scenes.push({
+              id: `c${ci + 1}-s1`,
+              title: String(ch.title || `Chapter ${ci + 1}`),
+              narrative: String(ch.content),
+              dialogue: [],
+              emotion: 'wonder',
+              setting: '',
+            });
+          }
+
+          return {
+            id: `c${ci + 1}`,
+            title: String(ch.title || `Chapter ${ci + 1}`),
+            scenes,
+          };
+        });
+      } else if (typeof parsed === 'object' && parsed !== null) {
+        // Content might be a full story object with chapters
+        const storyObj = parsed as Record<string, unknown>;
+        if (Array.isArray(storyObj.chapters)) {
+          chapters = (storyObj.chapters as Record<string, unknown>[]).map((ch, ci) => {
+            const scenes = Array.isArray(ch.scenes)
+              ? ch.scenes.map((sc: Record<string, unknown>, si: number) => ({
+                  id: `c${ci + 1}-s${si + 1}`,
+                  title: String(sc.title || `Scene ${si + 1}`),
+                  narrative: String(sc.narrative || sc.content || ''),
+                  dialogue: parseDialogue(sc.dialogue),
+                  emotion: String(sc.emotion || 'wonder').toLowerCase(),
+                  setting: String(sc.setting || ''),
+                }))
+              : [];
+
+            if (scenes.length === 0 && ch.content) {
+              scenes.push({
+                id: `c${ci + 1}-s1`,
+                title: String(ch.title || `Chapter ${ci + 1}`),
+                narrative: String(ch.content),
+                dialogue: [],
+                emotion: 'wonder',
+                setting: '',
+              });
+            }
+
+            return {
+              id: `c${ci + 1}`,
+              title: String(ch.title || `Chapter ${ci + 1}`),
+              scenes,
+            };
+          });
+        }
+      }
+    } catch {
+      // Content is plain text, create a single chapter
+      if (story.content.trim()) {
+        chapters = [{
+          id: 'c1',
+          title: story.title,
+          scenes: [{
+            id: 's1',
+            title: story.title,
+            narrative: story.content,
+            dialogue: [],
+            emotion: 'wonder',
+            setting: '',
+          }],
+        }];
+      }
+    }
+  }
+
+  // If no chapters from content, try pages
+  if (chapters.length === 0 && story.pages && story.pages.length > 0) {
+    chapters = [{
+      id: 'c1',
+      title: story.title,
+      scenes: story.pages.map((page, i) => ({
+        id: `s${i + 1}`,
+        title: `Page ${page.pageNumber || i + 1}`,
+        narrative: page.text,
+        dialogue: [],
+        emotion: 'wonder',
+        setting: '',
+      })),
+    }];
+  }
+
+  // If still no chapters, create a placeholder
+  if (chapters.length === 0) {
+    chapters = [{
+      id: 'c1',
+      title: story.title,
+      scenes: [{
+        id: 's1',
+        title: story.title,
+        narrative: 'This story is being prepared. Please check back shortly!',
+        dialogue: [],
+        emotion: 'wonder',
+        setting: '',
+      }],
+    }];
+  }
+
+  return {
+    id: story.id,
+    title: story.title,
+    author: 'StoryNest AI',
+    genre: story.genre,
+    ageGroup: story.ageGroup,
+    chapters,
+    moral: story.moral,
+  };
+}
+
+// =============================================================================
+// Genre display names
+// =============================================================================
+
+const GENRE_DISPLAY: Record<string, string> = {
+  adventure: 'Adventure',
+  fantasy: 'Fantasy',
+  bedtime: 'Bedtime',
+  educational: 'Educational',
+  friendship: 'Friendship',
+  mystery: 'Mystery',
+  scifi: 'Sci-Fi',
+  'fairy-tale': 'Fairy Tale',
+  animal: 'Animal',
+  comedy: 'Comedy',
+  ADVENTURE: 'Adventure',
+  FANTASY: 'Fantasy',
+  FAIRY_TALE: 'Fairy Tale',
+  SCIENCE_FICTION: 'Sci-Fi',
+  MYSTERY: 'Mystery',
+  EDUCATIONAL: 'Educational',
+  BEDTIME: 'Bedtime',
+  HUMOR: 'Humor',
+  FABLE: 'Fable',
+  MYTHOLOGY: 'Mythology',
+};
+
+// =============================================================================
 // Page turn animation variants
 // =============================================================================
 
@@ -261,6 +491,8 @@ const pageTransition = {
 
 export default function StoryReader() {
   const reader = useReaderSlice();
+  const currentStory = useAppStore((s) => s.currentStory);
+  const setView = useAppStore((s) => s.setView);
 
   const [currentPage, setCurrentPage] = useState(0);
   const [direction, setDirection] = useState(0);
@@ -271,16 +503,30 @@ export default function StoryReader() {
   const [showChapterDrawer, setShowChapterDrawer] = useState(false);
   const [currentVoice, setCurrentVoice] = useState('storyteller');
 
+  // Convert the store story to reader format, or use mock
+  const storyData: StoryData = useMemo(() => {
+    if (currentStory) {
+      return storyToStoryData(currentStory);
+    }
+    return mockStory;
+  }, [currentStory]);
+
+  // Reset page when story changes
+  useEffect(() => {
+    setCurrentPage(0);
+    setDirection(0);
+  }, [storyData.id]);
+
   // Flatten all scenes into a page list
   const pages = useMemo(() => {
     const result: { chapter: Chapter; scene: Scene; chapterIndex: number; sceneIndex: number }[] = [];
-    mockStory.chapters.forEach((chapter, ci) => {
+    storyData.chapters.forEach((chapter, ci) => {
       chapter.scenes.forEach((scene, si) => {
         result.push({ chapter, scene, chapterIndex: ci, sceneIndex: si });
       });
     });
     return result;
-  }, []);
+  }, [storyData]);
 
   const totalPages = pages.length;
   const currentPageData = pages[currentPage];
@@ -318,9 +564,14 @@ export default function StoryReader() {
     setIsNarrating((n) => !n);
   }, []);
 
+  const goBack = useCallback(() => {
+    setView('dashboard');
+  }, [setView]);
+
   if (!currentPageData) return null;
 
   const { chapter, scene } = currentPageData;
+  const genreDisplay = GENRE_DISPLAY[storyData.genre] || storyData.genre;
 
   return (
     <div
@@ -343,6 +594,15 @@ export default function StoryReader() {
         )}
       >
         <div className="flex items-center gap-3">
+          {/* Back button */}
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={goBack}
+            className={cn(isFullscreen ? 'text-stone-300 hover:text-amber-300 hover:bg-stone-800' : 'text-amber-700 hover:text-amber-900 hover:bg-amber-100')}
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
           <div className="flex items-center gap-2">
             <img src="/storynest-logo.png" alt="StoryNest AI" className={cn('h-9 w-9 rounded-lg', isFullscreen && 'ring-1 ring-amber-500/30')} />
             <div>
@@ -350,13 +610,13 @@ export default function StoryReader() {
                 'text-sm font-bold leading-tight',
                 isFullscreen ? 'text-amber-100' : 'text-amber-900'
               )}>
-                {mockStory.title}
+                {storyData.title}
               </h1>
               <p className={cn(
                 'text-xs',
                 isFullscreen ? 'text-stone-400' : 'text-amber-600'
               )}>
-                by {mockStory.author}
+                by {storyData.author}
               </p>
             </div>
           </div>
@@ -370,7 +630,7 @@ export default function StoryReader() {
               isFullscreen ? 'bg-violet-500/20 text-violet-300 border-violet-500/30' : 'bg-violet-100 text-violet-700 border-violet-200'
             )}
           >
-            🧙 {mockStory.genre}
+            🧙 {genreDisplay}
           </Badge>
           <Badge
             variant="secondary"
@@ -379,7 +639,7 @@ export default function StoryReader() {
               isFullscreen ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' : 'bg-amber-100 text-amber-700 border-amber-200'
             )}
           >
-            🌟 {mockStory.ageGroup}
+            🌟 {storyData.ageGroup}
           </Badge>
 
           <Separator orientation="vertical" className={cn('mx-1 h-6', isFullscreen ? 'bg-stone-700' : 'bg-amber-200')} />
@@ -424,7 +684,7 @@ export default function StoryReader() {
       <div className="flex-1 overflow-hidden">
         <AnimatePresence mode="wait" custom={direction}>
           <motion.div
-            key={currentPage}
+            key={`${storyData.id}-${currentPage}`}
             custom={direction}
             variants={pageVariants}
             initial="enter"
@@ -489,7 +749,7 @@ export default function StoryReader() {
               {/* Scene emotion badge */}
               <div className="absolute bottom-3 right-3">
                 <span className="inline-flex items-center gap-1 rounded-full bg-black/30 px-3 py-1 text-sm font-medium text-white backdrop-blur-sm">
-                  {EMOTION_EMOJI[scene.emotion]} {scene.emotion}
+                  {EMOTION_EMOJI[scene.emotion] || '✨'} {scene.emotion}
                 </span>
               </div>
             </motion.div>
@@ -521,22 +781,24 @@ export default function StoryReader() {
             </motion.div>
 
             {/* Scene Setting */}
-            <motion.div
-              initial={{ y: 10, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              transition={{ delay: 0.4 }}
-              className="mb-6"
-            >
-              <p
-                className={cn(
-                  'italic text-center',
-                  isFullscreen ? 'text-stone-400' : 'text-amber-700/70',
-                  textSize === 'large' ? 'text-base' : 'text-sm'
-                )}
+            {scene.setting && (
+              <motion.div
+                initial={{ y: 10, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ delay: 0.4 }}
+                className="mb-6"
               >
-                📍 {scene.setting}
-              </p>
-            </motion.div>
+                <p
+                  className={cn(
+                    'italic text-center',
+                    isFullscreen ? 'text-stone-400' : 'text-amber-700/70',
+                    textSize === 'large' ? 'text-base' : 'text-sm'
+                  )}
+                >
+                  📍 {scene.setting}
+                </p>
+              </motion.div>
+            )}
 
             {/* Narrative Text */}
             <motion.div
@@ -601,6 +863,34 @@ export default function StoryReader() {
                     </p>
                   </div>
                 ))}
+              </motion.div>
+            )}
+
+            {/* Moral - shown on the last page */}
+            {storyData.moral && currentPage === totalPages - 1 && (
+              <motion.div
+                initial={{ y: 15, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ delay: 0.7 }}
+                className={cn(
+                  'mt-8 rounded-2xl p-6 text-center',
+                  isFullscreen
+                    ? 'bg-amber-500/10 border border-amber-500/20'
+                    : 'bg-amber-100/50 border border-amber-200/50'
+                )}
+              >
+                <p className={cn(
+                  'text-sm font-semibold uppercase tracking-wider mb-2',
+                  isFullscreen ? 'text-amber-400' : 'text-amber-600'
+                )}>
+                  ✨ The Moral of the Story
+                </p>
+                <p className={cn(
+                  'text-lg italic font-medium',
+                  isFullscreen ? 'text-amber-200' : 'text-amber-800'
+                )}>
+                  &ldquo;{storyData.moral}&rdquo;
+                </p>
               </motion.div>
             )}
 
@@ -788,9 +1078,17 @@ export default function StoryReader() {
                 </Button>
               </div>
 
+              {/* Story title */}
+              <div className={cn('px-4 pt-4 pb-2', isFullscreen ? 'text-amber-200' : 'text-amber-900')}>
+                <p className="font-bold text-sm">{storyData.title}</p>
+                <p className={cn('text-xs mt-1', isFullscreen ? 'text-stone-400' : 'text-amber-600')}>
+                  {totalPages} scenes · {storyData.chapters.length} chapters
+                </p>
+              </div>
+
               {/* Chapter list */}
               <div className="p-4">
-                {mockStory.chapters.map((ch, ci) => (
+                {storyData.chapters.map((ch, ci) => (
                   <div key={ch.id} className="mb-4">
                     <p
                       className={cn(
