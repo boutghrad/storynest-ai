@@ -442,10 +442,7 @@ export default function Dashboard() {
             {/* Left: Logo + Welcome */}
             <div className="flex items-center gap-3 sm:gap-4">
               <div className="flex items-center gap-2">
-                <div className="relative">
-                  <BookOpen className="w-7 h-7 text-amber-500" />
-                  <Sparkles className="w-3 h-3 text-violet-500 absolute -top-1 -right-1" />
-                </div>
+                <img src="/storynest-logo.png" alt="StoryNest AI" className="w-7 h-7 rounded-lg" />
                 <span className="hidden sm:inline font-bold tracking-tight">
                   <span className="gradient-text">StoryNest</span>
                   <span className="text-foreground ml-0.5">AI</span>

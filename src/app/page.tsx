@@ -133,9 +133,7 @@ export default function Home() {
               onClick={() => handleViewChange('dashboard')}
               className="flex items-center gap-2 hover:opacity-80 transition-opacity"
             >
-              <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-lg shadow-amber-500/20">
-                <BookOpen className="h-4 w-4 text-white" />
-              </div>
+              <img src="/storynest-logo.png" alt="StoryNest AI" className="h-8 w-8 rounded-lg shadow-lg shadow-amber-500/20" />
               <span className="font-bold text-lg gradient-text hidden sm:block">StoryNest AI</span>
             </button>
 
@@ -254,9 +252,7 @@ export default function Home() {
               {/* Modal Header */}
               <div className="relative px-8 pt-8 pb-4 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30">
                 <div className="flex items-center gap-3 mb-2">
-                  <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-lg shadow-amber-500/20">
-                    <BookOpen className="h-5 w-5 text-white" />
-                  </div>
+                  <img src="/storynest-logo.png" alt="StoryNest AI" className="h-10 w-10 rounded-xl shadow-lg shadow-amber-500/20" />
                   <h2 className="text-2xl font-bold gradient-text">
                     {authMode === 'login' ? 'Welcome Back!' : 'Join StoryNest'}
                   </h2>

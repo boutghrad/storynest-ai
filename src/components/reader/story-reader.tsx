@@ -344,12 +344,7 @@ export default function StoryReader() {
       >
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            <div className={cn(
-              'flex h-9 w-9 items-center justify-center rounded-lg',
-              isFullscreen ? 'bg-amber-500/20' : 'bg-amber-100'
-            )}>
-              <BookOpen className={cn('h-5 w-5', isFullscreen ? 'text-amber-400' : 'text-amber-600')} />
-            </div>
+            <img src="/storynest-logo.png" alt="StoryNest AI" className={cn('h-9 w-9 rounded-lg', isFullscreen && 'ring-1 ring-amber-500/30')} />
             <div>
               <h1 className={cn(
                 'text-sm font-bold leading-tight',

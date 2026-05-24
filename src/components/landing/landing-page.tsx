@@ -306,10 +306,7 @@ function Navbar() {
         <div className="flex items-center justify-between h-16 sm:h-20">
           {/* Logo */}
           <a href="#" className="flex items-center gap-2 group">
-            <div className="relative">
-              <BookOpen className="w-7 h-7 sm:w-8 sm:h-8 text-amber-500 group-hover:text-amber-600 transition-colors" />
-              <Sparkles className="w-3 h-3 text-violet-500 absolute -top-1 -right-1 group-hover:text-violet-400 transition-colors" />
-            </div>
+            <img src="/storynest-logo.png" alt="StoryNest AI" className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg group-hover:scale-105 transition-transform" />
             <span className="text-lg sm:text-xl font-bold tracking-tight">
               <span className="gradient-text">StoryNest</span>
               <span className="text-foreground ml-0.5">AI</span>
@@ -989,10 +986,7 @@ function Footer() {
           {/* Brand */}
           <div className="col-span-2 md:col-span-1">
             <a href="#" className="flex items-center gap-2 mb-4">
-              <div className="relative">
-                <BookOpen className="w-6 h-6 text-amber-500" />
-                <Sparkles className="w-2.5 h-2.5 text-violet-500 absolute -top-0.5 -right-0.5" />
-              </div>
+              <img src="/storynest-logo.png" alt="StoryNest AI" className="w-7 h-7 rounded-lg" />
               <span className="font-bold tracking-tight">
                 <span className="gradient-text">StoryNest</span>
                 <span className="ml-0.5">AI</span>
