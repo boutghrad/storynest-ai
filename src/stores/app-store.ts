@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { useShallow } from "zustand/shallow";
 
 // =============================================================================
 // TypeScript Interfaces — All data types for the StoryNest AI platform
@@ -480,94 +481,106 @@ export const useAppStore = create<AppStore>()((set) => ({
 
 /** Select only the app slice state */
 export const useAppSlice = () =>
-  useAppStore((state) => ({
-    currentView: state.currentView,
-    isSidebarOpen: state.isSidebarOpen,
-    theme: state.theme,
-    setView: state.setView,
-    toggleSidebar: state.toggleSidebar,
-    setSidebarOpen: state.setSidebarOpen,
-    setTheme: state.setTheme,
-  }));
+  useAppStore(
+    useShallow((state) => ({
+      currentView: state.currentView,
+      isSidebarOpen: state.isSidebarOpen,
+      theme: state.theme,
+      setView: state.setView,
+      toggleSidebar: state.toggleSidebar,
+      setSidebarOpen: state.setSidebarOpen,
+      setTheme: state.setTheme,
+    }))
+  );
 
 /** Select only the auth slice state */
 export const useAuthSlice = () =>
-  useAppStore((state) => ({
-    user: state.user,
-    isAuthenticated: state.isAuthenticated,
-    isLoading: state.isLoading,
-    login: state.login,
-    logout: state.logout,
-    setUser: state.setUser,
-    setLoading: state.setLoading,
-  }));
+  useAppStore(
+    useShallow((state) => ({
+      user: state.user,
+      isAuthenticated: state.isAuthenticated,
+      isLoading: state.isLoading,
+      login: state.login,
+      logout: state.logout,
+      setUser: state.setUser,
+      setLoading: state.setLoading,
+    }))
+  );
 
 /** Select only the story slice state */
 export const useStorySlice = () =>
-  useAppStore((state) => ({
-    currentStory: state.currentStory,
-    stories: state.stories,
-    isGenerating: state.isGenerating,
-    generationProgress: state.generationProgress,
-    storyForm: state.storyForm,
-    setCurrentStory: state.setCurrentStory,
-    setStories: state.setStories,
-    addStory: state.addStory,
-    removeStory: state.removeStory,
-    updateStory: state.updateStory,
-    setGenerating: state.setGenerating,
-    updateProgress: state.updateProgress,
-    updateStoryForm: state.updateStoryForm,
-    resetStoryForm: state.resetStoryForm,
-  }));
+  useAppStore(
+    useShallow((state) => ({
+      currentStory: state.currentStory,
+      stories: state.stories,
+      isGenerating: state.isGenerating,
+      generationProgress: state.generationProgress,
+      storyForm: state.storyForm,
+      setCurrentStory: state.setCurrentStory,
+      setStories: state.setStories,
+      addStory: state.addStory,
+      removeStory: state.removeStory,
+      updateStory: state.updateStory,
+      setGenerating: state.setGenerating,
+      updateProgress: state.updateProgress,
+      updateStoryForm: state.updateStoryForm,
+      resetStoryForm: state.resetStoryForm,
+    }))
+  );
 
 /** Select only the library slice state */
 export const useLibrarySlice = () =>
-  useAppStore((state) => ({
-    savedStories: state.savedStories,
-    folders: state.folders,
-    filter: state.filter,
-    setSavedStories: state.setSavedStories,
-    addSavedStory: state.addSavedStory,
-    removeSavedStory: state.removeSavedStory,
-    setFolders: state.setFolders,
-    addFolder: state.addFolder,
-    removeFolder: state.removeFolder,
-    setFilter: state.setFilter,
-    resetFilter: state.resetFilter,
-    toggleFavorite: state.toggleFavorite,
-  }));
+  useAppStore(
+    useShallow((state) => ({
+      savedStories: state.savedStories,
+      folders: state.folders,
+      filter: state.filter,
+      setSavedStories: state.setSavedStories,
+      addSavedStory: state.addSavedStory,
+      removeSavedStory: state.removeSavedStory,
+      setFolders: state.setFolders,
+      addFolder: state.addFolder,
+      removeFolder: state.removeFolder,
+      setFilter: state.setFilter,
+      resetFilter: state.resetFilter,
+      toggleFavorite: state.toggleFavorite,
+    }))
+  );
 
 /** Select only the reader slice state */
 export const useReaderSlice = () =>
-  useAppStore((state) => ({
-    isFullscreen: state.isFullscreen,
-    currentPage: state.currentPage,
-    totalPages: state.totalPages,
-    isNarrating: state.isNarrating,
-    narrationSpeed: state.narrationSpeed,
-    currentVoice: state.currentVoice,
-    setPage: state.setPage,
-    nextPage: state.nextPage,
-    prevPage: state.prevPage,
-    setFullscreen: state.setFullscreen,
-    toggleFullscreen: state.toggleFullscreen,
-    toggleNarration: state.toggleNarration,
-    setSpeed: state.setSpeed,
-    setVoice: state.setVoice,
-    setTotalPages: state.setTotalPages,
-    resetReader: state.resetReader,
-  }));
+  useAppStore(
+    useShallow((state) => ({
+      isFullscreen: state.isFullscreen,
+      currentPage: state.currentPage,
+      totalPages: state.totalPages,
+      isNarrating: state.isNarrating,
+      narrationSpeed: state.narrationSpeed,
+      currentVoice: state.currentVoice,
+      setPage: state.setPage,
+      nextPage: state.nextPage,
+      prevPage: state.prevPage,
+      setFullscreen: state.setFullscreen,
+      toggleFullscreen: state.toggleFullscreen,
+      toggleNarration: state.toggleNarration,
+      setSpeed: state.setSpeed,
+      setVoice: state.setVoice,
+      setTotalPages: state.setTotalPages,
+      resetReader: state.resetReader,
+    }))
+  );
 
 /** Select only the admin slice state */
 export const useAdminSlice = () =>
-  useAppStore((state) => ({
-    stats: state.stats,
-    moderationQueue: state.moderationQueue,
-    selectedTab: state.selectedTab,
-    setStats: state.setStats,
-    setModerationQueue: state.setModerationQueue,
-    removeFromModerationQueue: state.removeFromModerationQueue,
-    updateModerationStatus: state.updateModerationStatus,
-    setSelectedTab: state.setSelectedTab,
-  }));
+  useAppStore(
+    useShallow((state) => ({
+      stats: state.stats,
+      moderationQueue: state.moderationQueue,
+      selectedTab: state.selectedTab,
+      setStats: state.setStats,
+      setModerationQueue: state.setModerationQueue,
+      removeFromModerationQueue: state.removeFromModerationQueue,
+      updateModerationStatus: state.updateModerationStatus,
+      setSelectedTab: state.setSelectedTab,
+    }))
+  );

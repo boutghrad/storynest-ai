@@ -39,7 +39,12 @@ const viewConfig: Record<AppView, { label: string; icon: typeof BookOpen; descri
 const appViews: AppView[] = ['dashboard', 'reader', 'teacher', 'parent', 'admin'];
 
 export default function Home() {
-  const { currentView, setView, isAuthenticated, user, login, logout } = useAppStore();
+  const currentView = useAppStore((s) => s.currentView);
+  const setView = useAppStore((s) => s.setView);
+  const isAuthenticated = useAppStore((s) => s.isAuthenticated);
+  const user = useAppStore((s) => s.user);
+  const login = useAppStore((s) => s.login);
+  const logout = useAppStore((s) => s.logout);
   const [showNav, setShowNav] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
