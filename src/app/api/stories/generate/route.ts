@@ -45,7 +45,6 @@ const generateStorySchema = z.object({
   includeIllustrations: z.boolean().default(true),
   includeNarration: z.boolean().default(false),
   chapters: z.number().min(1).max(10).default(3),
-  // If true, return JSON response instead of SSE stream
   mode: z.enum(["sse", "json"]).default("sse"),
 });
 
@@ -97,17 +96,227 @@ function extractAIContent(response: unknown): string {
 }
 
 // ============================================================
-// Helper: Parse AI response JSON (strip code fences, extract JSON)
+// Helper: Robust JSON parsing from AI response
+// Handles: code fences, truncated JSON, partial responses
 // ============================================================
 
 function parseAIJSON(text: string): Record<string, unknown> {
-  // Strip markdown code fences if present
-  const cleaned = text.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "").trim();
-  const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-  if (jsonMatch) {
-    return JSON.parse(jsonMatch[0]);
+  // Step 1: Strip markdown code fences if present
+  let cleaned = text.trim();
+  
+  // Remove opening code fence (```json or ```)
+  cleaned = cleaned.replace(/^```(?:json)?\s*\n?/i, "");
+  // Remove closing code fence
+  cleaned = cleaned.replace(/\n?\s*```\s*$/i, "");
+  cleaned = cleaned.trim();
+
+  // Step 2: Try direct parse first
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    // Continue to more robust parsing
   }
-  throw new Error("No JSON object found in AI response");
+
+  // Step 3: Extract JSON object using balanced brace counting
+  const firstBrace = cleaned.indexOf("{");
+  if (firstBrace === -1) {
+    throw new Error("No JSON object found in AI response");
+  }
+
+  // Find the matching closing brace by counting depth
+  let depth = 0;
+  let lastValidEnd = -1;
+  let inString = false;
+  let escapeNext = false;
+
+  for (let i = firstBrace; i < cleaned.length; i++) {
+    const ch = cleaned[i];
+    
+    if (escapeNext) {
+      escapeNext = false;
+      continue;
+    }
+    
+    if (ch === "\\") {
+      escapeNext = true;
+      continue;
+    }
+    
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    
+    if (inString) continue;
+    
+    if (ch === "{") {
+      depth++;
+    } else if (ch === "}") {
+      depth--;
+      if (depth === 0) {
+        lastValidEnd = i;
+        break;
+      }
+    }
+  }
+
+  if (lastValidEnd !== -1) {
+    const jsonStr = cleaned.substring(firstBrace, lastValidEnd + 1);
+    try {
+      return JSON.parse(jsonStr);
+    } catch {
+      // Continue to fallback
+    }
+  }
+
+  // Step 4: If JSON is truncated, try to repair it by closing open braces/brackets
+  const partialJson = cleaned.substring(firstBrace);
+  
+  // Count unclosed braces and brackets
+  let openBraces = 0;
+  let openBrackets = 0;
+  let inStr = false;
+  let esc = false;
+  
+  for (let i = 0; i < partialJson.length; i++) {
+    const ch = partialJson[i];
+    if (esc) { esc = false; continue; }
+    if (ch === "\\") { esc = true; continue; }
+    if (ch === '"') { inStr = !inStr; continue; }
+    if (inStr) continue;
+    if (ch === "{") openBraces++;
+    if (ch === "}") openBraces--;
+    if (ch === "[") openBrackets++;
+    if (ch === "]") openBrackets--;
+  }
+
+  // Close any open string
+  let repaired = partialJson;
+  if (inStr) repaired += '"';
+  
+  // Remove trailing incomplete values (partial strings, incomplete keys)
+  // Remove trailing comma and incomplete content after last complete value
+  repaired = repaired.replace(/,\s*$/, "");
+  
+  // If we're in the middle of a value, try to close it
+  // Remove incomplete key-value pairs at the end
+  repaired = repaired.replace(/,\s*"[^"]*"?\s*:\s*$/, "");
+  
+  // Close open brackets and braces
+  for (let i = 0; i < openBrackets; i++) repaired += "]";
+  for (let i = 0; i < openBraces; i++) repaired += "}";
+
+  try {
+    return JSON.parse(repaired);
+  } catch {
+    // Final fallback: try regex extraction
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      try {
+        return JSON.parse(jsonMatch[0]);
+      } catch {
+        // Give up
+      }
+    }
+    throw new Error("Failed to parse AI response as JSON");
+  }
+}
+
+// ============================================================
+// Helper: Extract story content from raw AI text when JSON parsing fails
+// ============================================================
+
+function extractStoryFromRawText(rawText: string, body: GenerateStoryInput): Record<string, unknown> {
+  // Try to extract the actual story content from the raw text
+  // Remove code fences if present
+  let content = rawText.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "").trim();
+  
+  // Try to find the actual narrative content - look for chapter content
+  // If the AI returned JSON-like text, try to extract useful parts
+  const contentMatches = content.match(/"content"\s*:\s*"((?:[^"\\]|\\.)*)"/g);
+  const titleMatch = content.match(/"title"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+  const descriptionMatch = content.match(/"description"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+  const moralMatch = content.match(/"moral"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+  
+  const extractedTitle = titleMatch ? titleMatch[1].replace(/\\"/g, '"') : body.title;
+  const extractedDescription = descriptionMatch ? descriptionMatch[1].replace(/\\"/g, '"') : "An AI-generated children's story";
+  const extractedMoral = moralMatch ? moralMatch[1].replace(/\\"/g, '"') : body.moral || "Kindness and courage can overcome any challenge.";
+  
+  // Extract narrative content from scenes
+  const narrativeMatches = content.match(/"narrative"\s*:\s*"((?:[^"\\]|\\.)*)"/g);
+  
+  if (narrativeMatches && narrativeMatches.length > 0) {
+    // Build chapters from extracted narratives
+    const narratives = narrativeMatches.map((match) => {
+      const text = match.replace(/^"narrative"\s*:\s*"/, "").replace(/"$/, "").replace(/\\"/g, '"');
+      return text;
+    });
+    
+    const chapterContent = narratives.join("\n\n");
+    
+    return {
+      title: extractedTitle !== body.title ? extractedTitle : body.title,
+      description: extractedDescription,
+      moral: extractedMoral,
+      chapters: [{
+        chapterNumber: 1,
+        title: extractedTitle || `The Story of ${body.title}`,
+        content: chapterContent,
+        scenes: narratives.map((narr, idx) => ({
+          title: `Scene ${idx + 1}`,
+          narrative: narr,
+          dialogue: [],
+          emotion: idx === 0 ? "wonder" : idx === narratives.length - 1 ? "happiness" : "curiosity",
+          setting: "",
+          ...(body.includeIllustrations ? {
+            illustrationPrompt: `Children's book illustration, warm whimsical watercolor style: A scene from a children's story about ${body.title}. Age group: ${body.ageGroup}. Soft lighting, gentle colors.`
+          } : {}),
+        })),
+      }],
+    };
+  }
+  
+  // If we have content matches from chapters, use those
+  if (contentMatches && contentMatches.length > 0) {
+    const chapterTexts = contentMatches.map((match) => {
+      return match.replace(/^"content"\s*:\s*"/, "").replace(/"$/, "").replace(/\\"/g, '"');
+    });
+    
+    const chapterContent = chapterTexts.join("\n\n");
+    
+    return {
+      title: extractedTitle !== body.title ? extractedTitle : body.title,
+      description: extractedDescription,
+      moral: extractedMoral,
+      chapters: [{
+        chapterNumber: 1,
+        title: extractedTitle || `The Story of ${body.title}`,
+        content: chapterContent,
+        scenes: [],
+      }],
+    };
+  }
+  
+  // Last resort: use the raw text but clean it up
+  // Remove JSON-like formatting to make it more readable
+  const cleanText = content
+    .replace(/^\s*\{[\s\S]*?\n\s*"title"/, "") // Remove JSON header
+    .replace(/"[a-zA-Z]+"\s*:\s*/g, "") // Remove JSON keys
+    .replace(/[\[\]{}"",:]/g, "") // Remove JSON punctuation
+    .replace(/\n{3,}/g, "\n\n") // Clean up multiple newlines
+    .trim();
+  
+  return {
+    title: body.title,
+    description: "An AI-generated children's story",
+    moral: body.moral || "Kindness and courage can overcome any challenge.",
+    chapters: [{
+      chapterNumber: 1,
+      title: `The Story of ${body.title}`,
+      content: cleanText.slice(0, 5000) || "Once upon a time, a magical adventure began...",
+      scenes: [],
+    }],
+  };
 }
 
 // ============================================================
@@ -164,7 +373,6 @@ function enrichChaptersWithScenes(
             } : {}),
           }];
     } else {
-      // No content at all — the AI might have skipped this chapter
       ch.scenes = [{
         title: ch.title || "Chapter",
         narrative: "The adventure continues with wonder and excitement...",
@@ -197,95 +405,89 @@ async function generateStory(body: GenerateStoryInput): Promise<Record<string, u
         .join(", ")
     : "Create suitable characters for the story";
 
-  const systemPrompt = `You are StoryNest AI, a world-class children's storyteller. You create age-appropriate, engaging, and magical stories for children. Your stories are creative, have vivid imagery, and always include a positive moral lesson.
+  const systemPrompt = `You are StoryNest AI, a world-class children's storyteller. You create age-appropriate, engaging, and magical stories for children.
 
-You MUST respond with valid JSON only. No markdown, no code fences, no extra text.
+You MUST respond with ONLY a valid JSON object. No markdown code fences, no extra text before or after the JSON.
 
 The story should be written for children who are ${ageDescription}.
 The genre is ${genreDescription}.
 The story should be written in ${body.language === "en" ? "English" : body.language}.
 ${body.moral ? `The moral lesson should be: "${body.moral}"` : "Include an appropriate moral lesson."}
 The story should have ${body.chapters} chapter(s).
-${body.includeIllustrations ? "Include scene description prompts for illustrations." : "No illustration prompts needed."}
+${body.includeIllustrations ? "Include illustrationPrompt for each scene." : "No illustration prompts needed."}
 
-Characters: ${characterDescriptions}
+Characters: ${characterDescriptions}`;
 
-IMPORTANT: Each chapter MUST have at least 2-3 scenes with:
-- "narrative": A vivid, descriptive paragraph (at least 100 words)
-- "dialogue": An array of objects with "speaker" and "line" fields
-- "emotion": The primary emotion of the scene
-- "setting": A brief description of the scene setting
-- "illustrationPrompt": A detailed prompt for generating an illustration`;
+  const userPrompt = `Create a complete children's story titled "${body.title}". 
 
-  const userPrompt = `Create a complete children's story titled "${body.title}" with the following structure. Respond with ONLY a JSON object in this exact format:
+Respond with ONLY a JSON object (no markdown, no code fences). Format:
 
 {
   "title": "${body.title}",
-  "description": "A brief 1-2 sentence description of the story",
+  "description": "Brief 1-2 sentence description",
   "ageGroup": "${body.ageGroup}",
   "genre": "${body.genre}",
   "language": "${body.language}",
-  "moral": "The moral lesson of the story",
-  "readingTime": <estimated reading time in minutes>,
+  "moral": "The moral lesson",
+  "readingTime": 5,
   "chapters": [
     {
       "chapterNumber": 1,
-      "title": "Creative chapter title",
-      "content": "The full chapter text with dialogue, descriptions, and narrative...",
-      "wordCount": <word count>,
-      "readingTime": <reading time in seconds>,
+      "title": "Chapter title",
+      "content": "Full chapter narrative text with dialogue and descriptions",
+      "wordCount": 300,
+      "readingTime": 60,
       "scenes": [
         {
           "title": "Scene title",
-          "narrative": "A vivid, descriptive narrative for this scene (at least 100 words)",
-          "dialogue": [{"speaker": "Character Name", "line": "Dialogue text"}],
-          "emotion": "primary emotion (wonder, excitement, curiosity, happiness, etc.)",
+          "narrative": "Vivid descriptive narrative (100+ words)",
+          "dialogue": [{"speaker": "Name", "line": "Speech"}],
+          "emotion": "wonder",
           "setting": "Scene setting description",
-          "illustrationPrompt": "${body.includeIllustrations ? "Detailed prompt for generating a children's book illustration for this scene, in a warm, whimsical, watercolor style" : ""}"
+          "illustrationPrompt": "${body.includeIllustrations ? "Children's book watercolor illustration prompt for this scene" : ""}"
         }
       ]
     }
   ],
   "characters": [
-    {
-      "name": "Character name",
-      "description": "Character description",
-      "type": "CHILD|ADULT|ANIMAL|MAGICAL_CREATURE|ROBOT|OTHER",
-      "role": "PROTAGONIST|ANTAGONIST|SUPPORTING|MENTOR|SIDEKICK"
-    }
+    {"name": "Name", "description": "Description", "type": "CHILD", "role": "PROTAGONIST"}
   ]
 }
 
-Make the story vivid, engaging, and age-appropriate. Each scene should have unique and creative content. Use descriptive language that sparks imagination. Make each scene different and exciting.`;
+Make the story vivid, engaging, age-appropriate, and creative.`;
 
-  // Generate the story with AI
+  // Generate the story with AI - use max_tokens to ensure complete response
   const storyResponse = await ai.chat.completions.create({
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
     ],
+    max_tokens: 8000,
+    temperature: 0.8,
   });
 
   // Parse the AI response
   let storyData: Record<string, unknown>;
+  const responseText = extractAIContent(storyResponse);
+  
   try {
-    const responseText = extractAIContent(storyResponse);
     storyData = parseAIJSON(responseText);
-  } catch {
-    // If JSON parsing fails, construct a basic story from raw text
-    const rawText = extractAIContent(storyResponse);
-    storyData = {
-      title: body.title,
-      description: "An AI-generated children's story",
-      chapters: [
-        {
-          chapterNumber: 1,
-          title: `The Story of ${body.title}`,
-          content: rawText.slice(0, 5000),
-          scenes: [],
-        },
-      ],
-    };
+  } catch (parseError) {
+    console.error("[Story Generation] JSON parse failed, extracting from raw text:", parseError);
+    // Smart extraction from raw text instead of just dumping it
+    storyData = extractStoryFromRawText(responseText, body);
+  }
+
+  // Ensure we have chapters
+  if (!Array.isArray(storyData.chapters) || storyData.chapters.length === 0) {
+    // Try to build chapters from the content
+    const content = (storyData.content as string) || (storyData.description as string) || "";
+    storyData.chapters = [{
+      chapterNumber: 1,
+      title: (storyData.title as string) || body.title,
+      content: content || "Once upon a time, a magical adventure began...",
+      scenes: [],
+    }];
   }
 
   // Enrich chapters with scenes
@@ -360,6 +562,7 @@ export async function POST(request: NextRequest) {
       );
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+      console.error("[Story Generation] Error:", errorMessage);
       return new Response(
         JSON.stringify({ success: false, error: errorMessage }),
         { status: 500, headers: { "Content-Type": "application/json" } }
