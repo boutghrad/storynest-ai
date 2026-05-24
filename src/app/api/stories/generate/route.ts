@@ -228,10 +228,17 @@ Make the story vivid, engaging, and age-appropriate. Use descriptive language th
 
         let planData: Record<string, unknown> = {};
         try {
-          const planText =
-            typeof planningResponse === "string"
-              ? planningResponse
-              : JSON.stringify(planningResponse);
+          // Extract content from SDK response (format: {choices: [{message: {content: "..."}}]})
+          let planText: string;
+          if (typeof planningResponse === "string") {
+            planText = planningResponse;
+          } else if (planningResponse && typeof planningResponse === "object" && "choices" in planningResponse) {
+            planText = (planningResponse as { choices: Array<{ message: { content: string } }> }).choices[0]?.message?.content || "";
+          } else {
+            planText = JSON.stringify(planningResponse);
+          }
+          // Strip markdown code fences if present (```json ... ```)
+          planText = planText.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "").trim();
           const planMatch = planText.match(/\{[\s\S]*\}/);
           if (planMatch) {
             planData = JSON.parse(planMatch[0]);
@@ -264,16 +271,23 @@ Make the story vivid, engaging, and age-appropriate. Use descriptive language th
         // Parse the AI response
         let storyData: Record<string, unknown> = {};
         try {
-          const responseText =
-            typeof storyResponse === "string"
-              ? storyResponse
-              : JSON.stringify(storyResponse);
+          // Extract content from SDK response (format: {choices: [{message: {content: "..."}}]})
+          let responseText: string;
+          if (typeof storyResponse === "string") {
+            responseText = storyResponse;
+          } else if (storyResponse && typeof storyResponse === "object" && "choices" in storyResponse) {
+            responseText = (storyResponse as { choices: Array<{ message: { content: string } }> }).choices[0]?.message?.content || "";
+          } else {
+            responseText = JSON.stringify(storyResponse);
+          }
           // Try to extract JSON from the response
+          // Strip markdown code fences if present (```json ... ```)
+          responseText = responseText.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "").trim();
           const jsonMatch = responseText.match(/\{[\s\S]*\}/);
           if (jsonMatch) {
             storyData = JSON.parse(jsonMatch[0]);
           } else {
-            // Fallback: construct a basic story object
+            // Fallback: construct a basic story object from raw text
             storyData = {
               title: body.title,
               description: "An AI-generated children's story",
@@ -299,16 +313,47 @@ Make the story vivid, engaging, and age-appropriate. Use descriptive language th
           message: "Crafting vivid scene descriptions...",
         });
 
-        // Step 3: Scene descriptions (enrich if needed)
+        // Step 3: Scene descriptions (enrich if needed — create scenes from chapter content when missing)
         const chapters = Array.isArray(storyData.chapters)
           ? storyData.chapters
           : [];
         for (const chapter of chapters) {
-          if (
-            Array.isArray((chapter as Record<string, unknown>).scenes) &&
-            (chapter as Record<string, unknown> & { scenes: unknown[] }).scenes.length > 0
-          ) {
+          const ch = chapter as Record<string, unknown> & {
+            scenes?: Array<Record<string, unknown>>;
+            content?: string;
+            title?: string;
+          };
+          if (Array.isArray(ch.scenes) && ch.scenes.length > 0) {
             continue; // Scenes already exist from the main generation
+          }
+          // No scenes — create them from chapter content
+          if (ch.content && typeof ch.content === "string" && ch.content.trim()) {
+            // Split content into paragraphs for scenes
+            const paragraphs = ch.content.split(/\n\n+/).filter((p: string) => p.trim().length > 20);
+            ch.scenes = paragraphs.length > 0
+              ? paragraphs.map((para: string, idx: number) => ({
+                  title: `${ch.title || "Chapter"} - Part ${idx + 1}`,
+                  narrative: para.trim(),
+                  dialogue: [],
+                  emotion: "wonder",
+                  setting: "",
+                }))
+              : [{
+                  title: ch.title || "Chapter",
+                  narrative: ch.content.trim(),
+                  dialogue: [],
+                  emotion: "wonder",
+                  setting: "",
+                }];
+          } else {
+            // No content at all, add a placeholder scene
+            ch.scenes = [{
+              title: ch.title || "Chapter",
+              narrative: "The story unfolds...",
+              dialogue: [],
+              emotion: "wonder",
+              setting: "",
+            }];
           }
         }
 

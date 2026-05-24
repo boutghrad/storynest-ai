@@ -299,6 +299,8 @@ export default function Dashboard() {
 
       const decoder = new TextDecoder()
       let buffer = ''
+      let currentEvent = ''
+      let currentData = ''
 
       while (true) {
         const { done, value } = await reader.read()
@@ -308,17 +310,15 @@ export default function Dashboard() {
 
         // Parse SSE events from buffer
         const lines = buffer.split('\n')
-        buffer = ''
-
-        let currentEvent = ''
-        let currentData = ''
+        // Keep the last incomplete line in the buffer
+        buffer = lines.pop() || ''
 
         for (const line of lines) {
           if (line.startsWith('event: ')) {
             currentEvent = line.slice(7).trim()
           } else if (line.startsWith('data: ')) {
             currentData = line.slice(6)
-          } else if (line === '' && currentEvent && currentData) {
+          } else if (line.trim() === '' && currentEvent && currentData) {
             try {
               const parsed = JSON.parse(currentData)
 
@@ -370,14 +370,12 @@ export default function Dashboard() {
 
             currentEvent = ''
             currentData = ''
-          } else if (line !== '') {
-            // Incomplete event, keep in buffer
-            buffer = line + '\n'
           }
         }
       }
     } catch (error) {
       console.error('Story generation failed:', error)
+      updateProgress({ step: 'Error', progress: 0 })
       setGenerating(false)
     }
   }, [storyForm, characters, chapterCount, setGenerating, updateProgress, addStory])
